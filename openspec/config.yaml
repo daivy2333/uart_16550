@@ -1,0 +1,40 @@
+schema: spec-driven
+
+context: |
+  Project: uart_16550 (v0.6.0)
+  Type: Rust no_std embedded library
+  Language: Rust (edition 2024, MSRV 1.85.1)
+  Tech stack: bitflags 2.x (寄存器位定义), embedded-io 0.7 (可选 I/O trait)
+  Testing: cargo test + assert2
+  Formatting: rustfmt + clippy
+  Spellcheck: typos (crate-ci/typos)
+  Purpose: 16550 UART 设备的低级驱动 (Port I/O + MMIO 两种后端)
+  Role: StarryOS 串口子系统的底层硬件驱动模块
+  Constraints:
+    - #![no_std] 强制（不可分配堆内存）
+    - #![deny(missing_docs)] 所有公开项必须有文档
+    - #![deny(clippy::all, clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
+    - unsafe 块必须有 SAFETY 注释
+    - sealed trait 模式（Backend/RegisterAddress 防止外部实现）
+  Architecture: 类型安全 API（Config/BaudRate/WordLength 枚举）+ 原始 bitflags（IER/ISR/FCR/LCR/LSR/MCR/MSR）
+  所有产出物必须用简体中文撰写。技术术语如 MMIO/PIO/IRQ/FIFO 保持英文原样。
+
+rules:
+  proposal:
+    - 包含回滚方案
+    - 说明为什么做、做什么、不做什么
+    - 标注对 StarryOS 上游的影响范围
+    - 涉及硬件寄存器变更时必须列出受影响的 bit 位
+  specs:
+    - 使用 Given/When/Then 格式描述行为
+    - 每个 spec.md 包含版本号和最后更新日期
+    - 变更时使用 Delta Specs（ADDED/MODIFIED/REMOVED）
+    - 涉及 16550 寄存器时引用 spec.rs 的 bitflags 常量
+  design:
+    - 复杂流程需包含序列图（如 init() 9 步流程）
+    - 标注关键依赖关系（no_std 约束、unsafe 边界）
+    - 包含备选方案对比
+  tasks:
+    - 每个任务可独立验证
+    - 标注依赖关系
+    - 包含验收标准（必须含 cargo test 通过条件）

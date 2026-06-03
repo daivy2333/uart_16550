@@ -1,7 +1,8 @@
 # SNAPSHOT.md - 项目快照
 
 > Generated at 2026-05-25
-> Last updated: 2026-05-25
+> Last updated: 2026-06-03
+> 2026-06-03: 文档体系迁移到 OpenSpec（架构/学习/参考/优化/规则已迁出，保留 SNAPSHOT + tasks）
 
 ---
 
@@ -10,6 +11,7 @@
 **Phase**: 稳定维护
 **Status**: v0.6.0 已发布，作为 StarryOS 高性能异步串口的底层驱动模块使用
 **Branch**: dev/optimize
+**文档体系**: OpenSpec (openspec/specs/*) + .claude/docs/{SNAPSHOT,tasks} + 5 个 .md.bak 备份
 
 ---
 
@@ -32,7 +34,19 @@ uart_16550/
 │   └── api.rs              # 编译期 API 类型可见性测试
 ├── test/                    # QEMU i386 硬件测试子项目
 ├── Cargo.toml              # v0.6.0, edition 2024, no_std
-└── .claude/docs/           # 项目文档体系
+├── openspec/               # OpenSpec 文档体系（v0.6.0 起）
+│   ├── config.yaml         # spec-driven schema + Rust 上下文
+│   ├── specs/              # 4 个 domain spec
+│   │   ├── architecture/   # 6 项 ADR
+│   │   ├── learned/        # API/文件/寄存器/中断/Config/波特率/init 速查
+│   │   ├── references/     # 依赖 + 16550 规范 + 领域知识
+│   │   └── optimization/   # O1-O8 优化点
+│   └── changes/            # 变更提案
+├── .claude/docs/           # 状态文档 + 备份
+│   ├── SNAPSHOT.md         # 项目状态快照（保留）
+│   ├── tasks.md            # 任务追踪（保留）
+│   └── *.md.bak            # 5 个旧文档备份
+└── .codegraph/             # CodeGraph 索引（18 files, 417 nodes）
 ```
 
 ---
@@ -74,8 +88,8 @@ uart_16550/
 ## Git 状态
 
 **当前分支**: dev/optimize
-**最近提交**: 55f0b1b - add project documentation system
-**未提交更改**: 0 (clean)
+**最近提交**: 69d05ae - repo(docs)
+**未提交更改**: openspec/ (新增), .claude/docs/ (迁移+备份), .codegraph/ (新增)
 
 ---
 
