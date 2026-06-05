@@ -292,3 +292,51 @@ Config struct 的字段、类型、默认值 MUST 可通过 spec 速查。
   - 硬件测试子项目（test/）的启动流程和调试接口用法
   - `Config::prescaler_division_factor` 的实际硬件使用场景
   - embedded-io feature 在 StarryOS 中的集成方式
+
+### Requirement: 异步适配层 API 速查
+
+异步适配层需要的同步原语 MUST 在 spec 中列出。
+
+#### Scenario: 定位异步适配入口 API
+
+- **WHEN** 开发者实现 AsyncUart wrapper（StarryOS 等）
+- **THEN** 应使用以下同步原语（**只允许在 ISR/极短上下文中调用**）：
+  - `try_receive_byte()` — `src/lib.rs:699` — ISR 中读单字节，非阻塞
+  - `try_send_byte()` — `src/lib.rs:712` — ISR 中写单字节，非阻塞
+  - `receive_bytes(buf)` — `src/lib.rs:728` — 批量读直到空（部分阻塞）
+  - `send_bytes(buf)` — `src/lib.rs:746` — 批量写直到满（部分阻塞）
+  - `isr()` — `src/lib.rs` — 读 ISR，**必须在 ISR 入口先读以确认和清除中断**
+  - `ier()` — 读 IER 寄存器（运行时切换中断需要）
+  - `InterruptType` — `src/spec.rs` — ISR 分发枚举（7 种）
+  - `IER::DATA_READY` / `THR_EMPTY` / `RECEIVER_LINE_STATUS` — 中断位定义
+
+#### Scenario: 避免在 ISR 中使用阻塞 API（踩坑档案）
+
+- **WHEN** 开发者写中断处理函数
+- **THEN** **禁止**使用 `receive_bytes_exact` / `send_bytes_exact`（会自旋死锁其他中断）
+- **AND** **禁止**使用 `embedded_io::Read::read` / `Write::write`（内部 `hint::spin_loop()`）
+- **AND** 只使用 `try_*` 系列（瞬时返回，无等待）
+- **AND** 如果 ISR 需要等待更多数据，应 yield 后让出（`return` ISR，等待下次中断）
+
+### Requirement: 异步适配架构模式（标准三件套）
+
+异步适配层的标准模式 MUST 记录为技巧。
+
+#### Scenario: 标准 ISR + RingBuffer + Waker 模式
+
+- **WHEN** 开发者实现异步 UART
+- **THEN** 应遵循三组件模式：
+  1. **RingBuffer** — 静态数组 + 头尾指针（或 heap），无锁或临界区保护
+  2. **AtomicWaker** — `core::task::Waker` 包装，支持并发注册（embassy 提供现成的，自研也简单）
+  3. **ISR 入口** — 读 ISR → 分发 InterruptType → 同步搬数据 → `waker.wake()`
+- **AND** 不需要引入 embassy 依赖（`core::task::Waker` 是 std/core 原语）
+- **AND** 具体代码模式见 `.claude/analysis/embassy-integration.md` 第 3 节
+- **AND** StarryOS Q6 阶段已规划此模式（见父 CLAUDE.md）
+
+#### Scenario: FIFO 触发级别选型技巧
+
+- **WHEN** 配置异步串口的 FIFO 触发级别
+- **THEN** 默认推荐 `FifoTriggerLevel::Fourteen`（最省中断次数）
+- **AND** 低延迟场景可改 `One`（每字节中断）
+- **AND** 平衡选择 `Four` 或 `Eight`
+- **AND** 在 `Config { interrupts: IER::DATA_READY, ... }` 中控制启用位

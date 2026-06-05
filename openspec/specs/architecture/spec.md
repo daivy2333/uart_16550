@@ -110,3 +110,56 @@ aarch64 后端 MUST 使用 `ldrb`/`strb` 内联汇编替代 `ptr::read_volatile`
 
 - **WHEN** 开发者考虑添加 DMA 传输 API
 - **THEN** 应参考 optimization.md 中的 O8 优化项（DMA 模式寄存器完整控制）
+
+### Requirement: 异步集成边界（Embassy / Waker / RingBuffer 模式）
+
+库 MUST 保持同步原语，异步适配 MUST 由调用方在 wrapper 层实现，不应将 async runtime 引入库内。
+
+#### Scenario: 集成 embassy 时的职责划分
+
+- **WHEN** 开发者考虑在 StarryOS 等 OS 中实现异步串口
+- **THEN** 必须由调用方实现：RingBuffer 缓冲 + AtomicWaker 唤醒 + ISR 数据搬运
+- **AND** 库仅提供同步寄存器原语（`try_*` / `isr()` / `ier()`）供 ISR 上下文调用
+- **AND** 不应在 uart_16550 库内添加 `embassy` 依赖（违反"零外部 runtime 依赖"原则）
+
+#### Scenario: 选择异步集成路径
+
+- **WHEN** 开发者有三种集成路径选择
+- **THEN** 推荐：路径 B（在 StarryOS wrapper 层封装），不修改 uart_16550
+- **AND** 次选：路径 C（上游添加 `embedded-io-async` feature），需 PR 说服维护者
+- **AND** 不推荐：路径 A（在 uart_16550 内依赖 embassy），与库哲学冲突且社区接受度低
+
+#### Scenario: 验证同步/异步分层正确性
+
+- **WHEN** 评审异步适配代码
+- **THEN** 检查：ISR 上下文是否只调用 `try_*` 系列（无 spin_loop）
+- **AND** 检查：Future 实现是否使用 ring buffer + Waker 唤醒（无 busy-wait）
+- **AND** 检查：FIFO 触发级别是否合理（14 字节为推荐默认）
+
+### Requirement: 异步集成决策记录（2026-06-05）
+
+本次探究产生的 3 个核心决策 MUST 显式记录在 spec 中，作为 StarryOS Q6 阶段的实施依据。
+
+#### Scenario: 决策 D1 - 集成位置选择
+
+- **WHEN** StarryOS 启动 Q6 阶段异步串口工作
+- **THEN** **决策**：在 StarryOS wrapper 层封装（路径 B），不修改 uart_16550
+- **AND** **原因**：避免上游阻力、保留库零依赖哲学、便于 StarryOS 特定优化（PLIC 中断、DMA）
+- **AND** **影响**：StarryOS 侧维护代码、升级 uart_16550 时需保持 wrapper API 稳定
+- **AND** **替代方案**：路径 A（库内 embassy feature）已拒绝；路径 C（上游 embedded-io-async）列为次选 PR 候选
+
+#### Scenario: 决策 D2 - async runtime 选择
+
+- **WHEN** 设计 AsyncUart wrapper 时选择 Waker 实现
+- **THEN** **决策**：优先基于 `core::task::Waker` 自研 AtomicWaker，**不强制引入 embassy**
+- **AND** **原因**：`core::task::Waker` 是 std/core 原语、零额外依赖、避免 embassy 生态耦合
+- **AND** **影响**：代码量略增（~50 行 AtomicWaker），但完全可控；后续若需 embassy executor 可平滑切换
+- **AND** **替代方案**：直接用 `embassy_sync::waitqueue::AtomicWaker`（如已决定引 embassy 依赖）
+
+#### Scenario: 决策 D3 - 上游协同策略
+
+- **WHEN** 评估是否给 uart_16550 上游提 PR
+- **THEN** **决策**：**暂不主动提 PR**，但产出 issue/discussion 文档以备后用
+- **AND** **原因**：Q6 阶段 StarryOS 自身需求优先；上游社区对 async 集成持保守态度
+- **AND** **影响**：保留 PR 可能性但不阻塞 Q6 进度
+- **AND** **触发条件**：如 StarryOS 异步串口落地效果良好，提取 `embedded-io-async` feature 提案给上游

@@ -105,3 +105,15 @@
 - **WHEN** 开发者需要深度分析
 - **THEN** 可以在 `.claude/analysis/` 目录查找（由 openspec-explorer 生成）
 - **AND** 索引条目应包含：主题、路径、内容概要
+
+#### Scenario: 查找 embassy / 异步集成方案
+
+- **WHEN** 开发者需要了解 embassy / async 集成可行性
+- **THEN** 阅读 `.claude/analysis/embassy-integration.md`（三种路径对比 + 实施建议 + 代码模式）
+- **AND** 三种路径：A) 库内 embassy feature（不推荐）/ B) StarryOS wrapper（推荐）/ C) embedded-io-async feature（次选）
+
+#### Scenario: 查找异步架构分层与性能分析
+
+- **WHEN** 开发者需要量化性能或设计分层架构
+- **THEN** 阅读 `.claude/analysis/async-architecture.md`（4 层架构 + 性能数据 + ISR 流程图 + StarryOS Q6 对接）
+- **AND** 关键数据：spin_loop 100% CPU vs 异步 ISR ~0% CPU（空闲时）

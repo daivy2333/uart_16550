@@ -80,6 +80,16 @@
 - **AND** 建议方案：添加 DMA 传输启停、地址设置、传输计数等高层 API
 - **AND** 优先级：高 | 触发条件：StarryOS P2 阶段实现 DMA 传输时
 
+#### Scenario: O9 - 异步串口 ISR + RingBuffer + Waker 集成（高优先级）
+
+- **WHEN** StarryOS Q6 阶段实现高性能异步串口
+- **THEN** 当前影响：uart_16550 API 全部同步（`try_*` 非阻塞 + `*_exact` 自旋 100% CPU），多任务环境不友好，无自然超时
+- **AND** 建议方案：在 StarryOS 侧封装 AsyncUart wrapper（路径 B，详见 `.claude/analysis/embassy-integration.md`），三件套：RingBuffer + AtomicWaker + ISR
+- **AND** 关联决策：D1（wrapper 位置）+ D2（自研 vs embassy）+ D3（暂不提 PR）
+- **AND** 关联 ADR：`architecture/spec.md` Requirement: 异步集成边界
+- **AND** 优先级：高 | 触发条件：StarryOS Q6 阶段启动时
+- **AND** 预期收益：空闲 CPU 占用从 100% 降至 ~0%，支持自然超时，多任务公平调度
+
 ### Requirement: 优化完成追踪
 
 已完成的优化 MUST 在 spec 中记录完成状态，保留历史记录。
@@ -98,7 +108,7 @@
 
 - **WHEN** 开发者制定优化计划时
 - **THEN** 可以参考本 spec 的优先级标注：
-  - **高优先级**: O8（DMA 模式寄存器完整控制）
+  - **高优先级**: O9（异步串口集成） + O8（DMA 模式寄存器完整控制）
   - **中优先级**: O6（批量读写 API）
   - **低优先级**: O7（FIFO 深度可配置化）
-- **AND** 应优先处理 StarryOS 集成相关的优化（O8）
+- **AND** 应优先处理 StarryOS 集成相关的优化（O8、O9）

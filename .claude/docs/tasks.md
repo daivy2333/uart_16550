@@ -15,8 +15,11 @@
 
 <!-- 添加时格式: <!-- T{编号} --> - [ ] {任务描述} -->
 
-<!-- T1 --> - [ ] 同步父 CLAUDE.md 文档索引（uart_16550 行从 .claude/docs/ 改为 openspec/specs/）
+<!-- T1 --> - [x] 同步父 CLAUDE.md 文档索引（uart_16550 行从 .claude/docs/ 改为 openspec/specs/）— 2026-06-05 已完成
 <!-- T2 --> - [ ] 评估 optimization O8（DMA 模式寄存器完整控制）在 StarryOS P2 阶段的需求
+<!-- T3 --> - [ ] **决策 D1**: 确认 StarryOS Q6 阶段 async_uart wrapper 落地方案（路径 B - StarryOS wrapper 层封装）
+<!-- T4 --> - [ ] **决策 D2**: 确认 Waker 实现方式（自研 AtomicWaker vs 引入 embassy 依赖）
+<!-- T5 --> - [ ] **决策 D3**: 起草 uart_16550 上游 `embedded-io-async` feature 提案 issue 草稿（暂不提交 PR，先产出文档）
 
 ## 阻塞项
 
