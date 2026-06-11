@@ -817,6 +817,18 @@ impl<B: Backend> Uart16550<B> {
         IER::from_bits_retain(val)
     }
 
+    /// Sets the Interrupt Enable Register directly.
+    ///
+    /// This bypasses the builder pattern for cases where IER needs to be
+    /// modified at runtime (e.g., disabling/enabling specific interrupts
+    /// during NAPI polling or ISR handling).
+    pub fn set_ier(&mut self, ier: IER) {
+        // SAFETY: We operate on valid register addresses.
+        unsafe {
+            self.backend.write(offsets::IER as u8, ier.bits());
+        }
+    }
+
     /// Fetches the current value from the [`ISR`].
     pub fn isr(&mut self) -> ISR {
         // SAFETY: We operate on valid register addresses.
