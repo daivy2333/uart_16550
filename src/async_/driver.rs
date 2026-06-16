@@ -170,7 +170,7 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                 let total = self.uart.receive_bytes(&mut read_buf[..batch]);
 
                 if total > 0 {
-                    self.rx.push(&read_buf[..total]);
+                    self.rx.push_batch(&read_buf[..total]);
                 }
 
                 // NAPI logic: track consecutive successful reads
@@ -217,7 +217,7 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
             poll_fn(|cx| {
                 // If we've sent all pending data, get more from ring buffer
                 if cursor >= pending {
-                    pending = self.tx.pop(&mut write_buf);
+                    pending = self.tx.pop_batch(&mut write_buf);
                     cursor = 0;
                     if pending == 0 {
                         self.tx.register_waker(cx.waker());

@@ -207,6 +207,24 @@ impl<W: OsWakerSet> RingBufTx<W> {
         n
     }
 
+    /// Pop multiple bytes from the ring buffer (called by TX copier).
+    ///
+    /// Returns the number of bytes popped. Wakes all registered wakers
+    /// if at least one byte was popped (space freed for producers).
+    #[inline(always)]
+    pub fn pop_batch(&self, buf: &mut [u8]) -> usize {
+        // SAFETY: SPSC — only the TX copier reads from this buffer.
+        let n = unsafe { &mut *self.reader.get() }.pop(|data| {
+            let len = data.len().min(buf.len());
+            buf[..len].copy_from_slice(&data[..len]);
+            len
+        });
+        if n > 0 {
+            self.poll.wake();
+        }
+        n
+    }
+
     /// Register a waker to be notified when space is available.
     pub fn register_waker(&self, waker: &Waker) {
         self.poll.register(waker);
