@@ -42,6 +42,7 @@ pub struct RingBufRx<W: OsWakerSet> {
 // The SPSC guarantee eliminates data races on Writer / Reader despite
 // interior mutability via UnsafeCell.
 unsafe impl<W: OsWakerSet> Send for RingBufRx<W> {}
+// SAFETY: Same reasoning as Send — SPSC atomics prevent data races.
 unsafe impl<W: OsWakerSet> Sync for RingBufRx<W> {}
 
 impl<W: OsWakerSet> fmt::Debug for RingBufRx<W> {
@@ -62,6 +63,7 @@ impl<W: OsWakerSet> RingBufRx<W> {
             // SAFETY: Caller guarantees ring is initialized and only one
             // Writer/Reader pair is created per ring.
             writer: UnsafeCell::new(unsafe { ring.writer() }),
+            // SAFETY: Same as writer — caller guarantees single Reader per ring.
             reader: UnsafeCell::new(unsafe { ring.reader() }),
             poll: W::new(),
         }
@@ -123,6 +125,7 @@ pub struct RingBufTx<W: OsWakerSet> {
 
 // SAFETY: same reasoning as RingBufRx.
 unsafe impl<W: OsWakerSet> Send for RingBufTx<W> {}
+// SAFETY: Same reasoning as Send — SPSC atomics prevent data races.
 unsafe impl<W: OsWakerSet> Sync for RingBufTx<W> {}
 
 impl<W: OsWakerSet> fmt::Debug for RingBufTx<W> {
@@ -143,6 +146,7 @@ impl<W: OsWakerSet> RingBufTx<W> {
             // SAFETY: Caller guarantees ring is initialized and only one
             // Writer/Reader pair is created per ring.
             writer: UnsafeCell::new(unsafe { ring.writer() }),
+            // SAFETY: Same as writer — caller guarantees single Reader per ring.
             reader: UnsafeCell::new(unsafe { ring.reader() }),
             poll: W::new(),
         }

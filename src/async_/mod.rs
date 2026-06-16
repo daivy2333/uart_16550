@@ -5,5 +5,6 @@
 //! This module provides interrupt-driven async I/O primitives including
 //! ISR handlers and waker statics for use with `embassy` executors.
 
+pub mod driver;
 pub mod isr;
 pub mod ring_buffer;
