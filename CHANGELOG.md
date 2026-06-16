@@ -8,10 +8,19 @@
   - Async modules: ISR handler, ring buffer, copier driver, device ops
   - `AsyncUartDriver` with NAPI-style interrupt coalescing
   - `AsyncUartReader`/`AsyncUartWriter` implementing `TtyRead`/`TtyWrite` + `embedded_io_async`
+  - `UartPort` trait for interior mutability abstraction
+  - Batch operations: `push_batch`/`pop_batch` for reduced lock overhead
+  - `#[inline(always)]` on hot path functions
   - Dependencies: `embassy-sync`, `embassy-hal-internal`, `embedded-io-async`
 
 ### Changed
 - `#![no_std]` crate now optionally supports `alloc` via `async` feature (for `Arc` in device ops)
+
+### Performance (Q13.1)
+- 1B avg latency: 129.5µs (vs Q12 baseline 124µs, +4.4% for portability)
+- Overhead: 42.6µs (vs Q13 pre-optimization 53.3µs, -20%)
+- Ring buffer batch operations reduce per-byte lock acquisition
+- Hot path functions use `#[inline(always)]` for cross-crate inlining
 
 ## 0.6.0 - 2026-03-28
 
