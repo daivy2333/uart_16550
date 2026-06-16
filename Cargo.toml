@@ -39,3 +39,6 @@ async = ["dep:embassy-sync", "dep:embassy-hal-internal", "dep:embedded-io-async"
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[profile.release]
+lto = true
