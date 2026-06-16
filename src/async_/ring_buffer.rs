@@ -73,7 +73,26 @@ impl<W: OsWakerSet> RingBufRx<W> {
     ///
     /// Returns the number of bytes pushed. Wakes all registered wakers
     /// if at least one byte was pushed.
+    #[inline(always)]
     pub fn push(&self, data: &[u8]) -> usize {
+        // SAFETY: SPSC — only the RX copier task calls push().
+        let n = unsafe { &mut *self.writer.get() }.push(|buf| {
+            let len = data.len().min(buf.len());
+            buf[..len].copy_from_slice(&data[..len]);
+            len
+        });
+        if n > 0 {
+            self.poll.wake();
+        }
+        n
+    }
+
+    /// Push multiple bytes into the ring buffer (called by RX copier).
+    ///
+    /// Returns the number of bytes pushed. Wakes all registered wakers
+    /// if at least one byte was pushed.
+    #[inline(always)]
+    pub fn push_batch(&self, data: &[u8]) -> usize {
         // SAFETY: SPSC — only the RX copier task calls push().
         let n = unsafe { &mut *self.writer.get() }.push(|buf| {
             let len = data.len().min(buf.len());
@@ -156,6 +175,7 @@ impl<W: OsWakerSet> RingBufTx<W> {
     ///
     /// Returns the number of bytes pushed. Wakes all registered wakers
     /// if at least one byte was pushed (notifying the TX copier).
+    #[inline(always)]
     pub fn push(&self, data: &[u8]) -> usize {
         // SAFETY: SPSC — only one producer writes to the TX buffer.
         let n = unsafe { &mut *self.writer.get() }.push(|buf| {
@@ -173,6 +193,7 @@ impl<W: OsWakerSet> RingBufTx<W> {
     ///
     /// Returns the number of bytes popped. Wakes all registered wakers
     /// if at least one byte was popped (space freed for producers).
+    #[inline(always)]
     pub fn pop(&self, buf: &mut [u8]) -> usize {
         // SAFETY: SPSC — only the TX copier reads from this buffer.
         let n = unsafe { &mut *self.reader.get() }.pop(|data| {
