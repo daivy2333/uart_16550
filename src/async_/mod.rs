@@ -6,3 +6,4 @@
 //! ISR handlers and waker statics for use with `embassy` executors.
 
 pub mod isr;
+pub mod ring_buffer;
