@@ -20,11 +20,11 @@ use super::ring_buffer::{RingBufRx, RingBufTx};
 use crate::os::{OsRuntime, OsWakerSet};
 
 /// NAPI: consecutive successful reads before entering polling mode.
-const NAPI_THRESHOLD: u32 = 16;
+pub const NAPI_THRESHOLD: u32 = 16;
 /// NAPI: batch size in polling mode.
-const NAPI_BATCH_SIZE: usize = 64;
+pub const NAPI_BATCH_SIZE: usize = 64;
 /// Copier buffer size for bulk operations.
-const COPIER_BUF_SIZE: usize = 1024;
+pub const COPIER_BUF_SIZE: usize = 1024;
 
 /// UART hardware access abstraction for copier tasks.
 ///

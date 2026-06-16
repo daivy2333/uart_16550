@@ -6,7 +6,7 @@
 //! corresponding interrupt, and wakes the appropriate async waker.
 
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::spec::registers::{InterruptType, IER, ISR, LSR, offsets};
@@ -19,6 +19,14 @@ pub static TX_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// Drain complete waker — woken when transmitter is fully empty (for `tcdrain`).
 pub static DRAIN_WAKER: AtomicWaker = AtomicWaker::new();
+
+/// IRQ invocation counter — useful for benchmarking and diagnostics.
+pub static IRQ_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the total number of ISR invocations since boot.
+pub fn irq_count() -> u64 {
+    IRQ_COUNT.load(Ordering::Relaxed)
+}
 
 /// Lock-free ISR register access — safe in ISR context.
 pub(crate) struct IsrRegisters {
@@ -102,6 +110,7 @@ impl IsrRegisters {
 /// 3. Wake the appropriate waker
 /// 4. Return immediately
 pub fn uart_isr_handler(_irq: usize, base: NonNull<u8>, cached_ier: &AtomicU8) {
+    IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
     // SAFETY: Called from ISR context with a valid base address.
     unsafe {
         let regs = IsrRegisters::new(base);
