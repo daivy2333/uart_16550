@@ -154,14 +154,19 @@ impl<W: OsWakerSet> RingBufTx<W> {
 
     /// Push data into the ring buffer (called by producers like TtyWrite).
     ///
-    /// Returns the number of bytes pushed.
+    /// Returns the number of bytes pushed. Wakes all registered wakers
+    /// if at least one byte was pushed (notifying the TX copier).
     pub fn push(&self, data: &[u8]) -> usize {
         // SAFETY: SPSC — only one producer writes to the TX buffer.
-        unsafe { &mut *self.writer.get() }.push(|buf| {
+        let n = unsafe { &mut *self.writer.get() }.push(|buf| {
             let len = data.len().min(buf.len());
             buf[..len].copy_from_slice(&data[..len]);
             len
-        })
+        });
+        if n > 0 {
+            self.poll.wake();
+        }
+        n
     }
 
     /// Pop data from the ring buffer (called by TX copier).
