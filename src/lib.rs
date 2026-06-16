@@ -182,6 +182,8 @@ use core::num::NonZeroU8;
 use core::ptr::NonNull;
 
 pub mod backend;
+#[cfg(feature = "async")]
+pub mod os;
 pub mod spec;
 
 mod config;
