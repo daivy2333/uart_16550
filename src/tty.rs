@@ -222,3 +222,30 @@ impl<B: Backend> fmt::Write for Uart16550Tty<B> {
         Ok(())
     }
 }
+
+// ── OS TTY integration traits ─────────────────────────────────────────
+
+/// Trait for reading bytes from a TTY input source.
+///
+/// Implementors pull bytes from a hardware FIFO, ring buffer, or other
+/// backend. The [`read`](TtyRead::read) method is non-blocking: it fills
+/// as much of `buf` as immediately available and returns the count.
+pub trait TtyRead: Send + Sync + 'static {
+    /// Read available bytes into `buf`, returning the number actually read.
+    ///
+    /// Returns `0` if no data is immediately available.
+    fn read(&mut self, buf: &mut [u8]) -> usize;
+}
+
+/// Trait for writing bytes to a TTY output sink.
+///
+/// Implementors push bytes to a hardware FIFO, ring buffer, or other
+/// backend. The [`write`](TtyWrite::write) method is non-blocking: it
+/// pushes as much of `buf` as capacity allows.
+pub trait TtyWrite: Send + Sync + 'static {
+    /// Write bytes from `buf` to the output sink.
+    ///
+    /// The implementation should accept as many bytes as possible; bytes
+    /// that cannot be sent immediately may be buffered or discarded.
+    fn write(&self, buf: &[u8]);
+}
