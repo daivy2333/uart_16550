@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+//! Device operations for async UART.
+//!
+//! Provides [`AsyncUartReader`] and [`AsyncUartWriter`] that bridge
+//! the async UART driver to OS-level traits ([`TtyRead`]/[`TtyWrite`])
+//! and the [`embedded_io_async`] standard async I/O interface.
+
+use alloc::sync::Arc;
+use core::fmt;
+
+use super::driver::{AsyncUartDriver, UartPort};
+use crate::os::{OsRuntime, OsWakerSet};
+use crate::tty::{TtyRead, TtyWrite};
+
+/// Async UART reader backed by the RX ring buffer.
+///
+/// Implements [`TtyRead`] and [`embedded_io_async::Read`] for consuming
+/// bytes received by the UART. Data is pulled from the RX ring buffer
+/// that is filled by the driver's RX copier task.
+pub struct AsyncUartReader<R: OsRuntime, W: OsWakerSet, U: UartPort> {
+    driver: Arc<AsyncUartDriver<R, W, U>>,
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartReader<R, W, U> {
+    /// Create a new reader from a shared driver reference.
+    #[must_use]
+    pub const fn new(driver: Arc<AsyncUartDriver<R, W, U>>) -> Self {
+        Self { driver }
+    }
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug
+    for AsyncUartReader<R, W, U>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsyncUartReader").finish_non_exhaustive()
+    }
+}
+
+impl<R: OsRuntime + 'static, W: OsWakerSet + 'static, U: UartPort> TtyRead
+    for AsyncUartReader<R, W, U>
+{
+    fn read(&mut self, buf: &mut [u8]) -> usize {
+        self.driver.rx.pop(buf)
+    }
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> embedded_io_async::ErrorType
+    for AsyncUartReader<R, W, U>
+{
+    type Error = core::convert::Infallible;
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> embedded_io_async::Read
+    for AsyncUartReader<R, W, U>
+{
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        Ok(self.driver.rx.pop(buf))
+    }
+}
+
+/// Async UART writer backed by the TX ring buffer.
+///
+/// Implements [`TtyWrite`] and [`embedded_io_async::Write`] for sending
+/// bytes through the UART. Data is pushed into the TX ring buffer and
+/// transmitted by the driver's TX copier task.
+///
+/// Implements [`Clone`] via [`Arc`] so multiple producers can share
+/// the same driver.
+pub struct AsyncUartWriter<R: OsRuntime, W: OsWakerSet, U: UartPort> {
+    driver: Arc<AsyncUartDriver<R, W, U>>,
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartWriter<R, W, U> {
+    /// Create a new writer from a shared driver reference.
+    #[must_use]
+    pub const fn new(driver: Arc<AsyncUartDriver<R, W, U>>) -> Self {
+        Self { driver }
+    }
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug
+    for AsyncUartWriter<R, W, U>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsyncUartWriter").finish_non_exhaustive()
+    }
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Clone
+    for AsyncUartWriter<R, W, U>
+{
+    fn clone(&self) -> Self {
+        Self {
+            driver: Arc::clone(&self.driver),
+        }
+    }
+}
+
+impl<R: OsRuntime + 'static, W: OsWakerSet + 'static, U: UartPort> TtyWrite
+    for AsyncUartWriter<R, W, U>
+{
+    fn write(&self, buf: &[u8]) {
+        if buf.is_empty() {
+            return;
+        }
+        self.driver.tx.push(buf);
+    }
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> embedded_io_async::ErrorType
+    for AsyncUartWriter<R, W, U>
+{
+    type Error = core::convert::Infallible;
+}
+
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> embedded_io_async::Write
+    for AsyncUartWriter<R, W, U>
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let n = self.driver.tx.push(buf);
+        Ok(n)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        // TX data is drained by the copier task; no explicit flush needed.
+        Ok(())
+    }
+}

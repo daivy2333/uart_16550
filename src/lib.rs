@@ -167,6 +167,9 @@
 #[cfg(test)]
 extern crate std;
 
+#[cfg(feature = "async")]
+extern crate alloc;
+
 pub use crate::config::*;
 pub use crate::error::*;
 pub use crate::tty::*;
