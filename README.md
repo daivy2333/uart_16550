@@ -132,6 +132,7 @@ To use the async features, implement these 5 traits for your OS:
 - **1B avg latency**: ~130µs (including trait abstraction overhead)
 - **Overhead**: ~43µs (vs 87µs hardware time at 115200 bps)
 - **NAPI coalescing**: Reduces IRQ overhead by 90%+ at high throughput
+- **LTO tip**: Enable `lto = true` in your top-level `[profile.release]` for cross-crate inlining — ring buffer throughput ↑69% (385→652 MB/s)
 
 ### Example
 
