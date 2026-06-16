@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+- **`async` feature gate** for interrupt-driven async UART support
+  - OS abstraction traits: `OsRuntime`, `OsIrq`, `OsMmio`, `OsSpinNoIrq`, `OsWakerSet`
+  - Async modules: ISR handler, ring buffer, copier driver, device ops
+  - `AsyncUartDriver` with NAPI-style interrupt coalescing
+  - `AsyncUartReader`/`AsyncUartWriter` implementing `TtyRead`/`TtyWrite` + `embedded_io_async`
+  - Dependencies: `embassy-sync`, `embassy-hal-internal`, `embedded-io-async`
+
+### Changed
+- `#![no_std]` crate now optionally supports `alloc` via `async` feature (for `Arc` in device ops)
+
 ## 0.6.0 - 2026-03-28
 
 - Rename `Uart16550::try_send_bytes()` to `Uart16550::send_bytes()`

@@ -16,10 +16,11 @@ uart_16550 是一个 Rust `no_std` 嵌入式库，提供 16550 UART 设备的低
 - sealed Backend trait 抽象（`PioBackend` for x86, `MmioBackend` 通用）
 - 类型安全 API（Config/BaudRate/WordLength 枚举）+ 原始 bitflags（IER/ISR/FCR/LCR/LSR/MCR/MSR）
 - 可选 `embedded-io` feature
+- 可选 `async` feature：中断驱动异步 UART 支持（OS 抽象 trait + 异步模块）
 - aarch64 使用内联汇编避免不可虚拟化 MMIO 指令
 - 9 步 init() 流程（含 SPR 存在检测 + loopback 自检）
 
-**在 StarryOS 中的角色**: RISC-V 平台使用 `Uart16550<MmioBackend>::new_mmio(0x10000000, 1)` 构造，async UART 在此基础上添加中断驱动 + 环形缓冲区 + 零拷贝。
+**在 StarryOS 中的角色**: RISC-V 平台使用 `Uart16550<MmioBackend>::new_mmio(0x10000000, 1)` 构造。启用 `async` feature 后，uart_16550 提供完整异步 UART 栈（ISR + ring buffer + copier + device_ops），StarryOS 只需实现 5 个 OS 抽象 trait。
 
 ---
 
@@ -54,6 +55,61 @@ uart_16550 是一个 Rust `no_std` 嵌入式库，提供 16550 UART 设备的低
 | `codegraph_status` | 索引健康 | 排查问题时 |
 
 当前索引: 18 files, 417 nodes, 752 edges（rust=13, yaml=5）
+
+---
+
+## Async Feature（异步 UART 支持）
+
+> 启用 `async` feature 后，uart_16550 成为可复用的异步 UART crate。
+
+### 架构
+
+```
+uart_16550 crate (async feature)
+├── os/mod.rs — 5 OS 抽象 trait
+├── async_/isr.rs — ISR handler + AtomicWaker
+├── async_/ring_buffer.rs — RingBufRx/RingBufTx (embassy SPSC)
+├── async_/driver.rs — AsyncUartDriver + UartPort trait
+└── async_/device_ops.rs — AsyncUartReader/Writer
+```
+
+### OS 抽象 Trait
+
+| Trait | 用途 | 方法 |
+|-------|------|------|
+| `OsRuntime` | 任务调度 | `spawn<F>(future, name)`, `block_on<F>(future)` |
+| `OsIrq` | 中断注册 | `register_handler(irq_number, handler)` |
+| `OsMmio` | MMIO 映射 | `map_mmio(phys, size)`, `phys_to_virt(phys)` |
+| `OsSpinNoIrq<T>` | IRQ 安全锁 | `new(val)`, `with_lock<R>(&self, f)` |
+| `OsWakerSet` | 唤醒器管理 | `new()`, `register(waker)`, `wake() -> u32` |
+
+### 使用方式
+
+```rust
+// 1. 实现 OS 抽象 trait
+struct MyOsRuntime;
+impl OsRuntime for MyOsRuntime { ... }
+
+// 2. 实现 UartPort trait（包装 SpinNoIrq<Uart16550>）
+struct MyUartPort(SpinNoIrq<Uart16550<MmioBackend>>);
+impl UartPort for MyUartPort { ... }
+
+// 3. 创建驱动并启动 copier
+let driver = AsyncUartDriver::new(rx, tx, &uart_port);
+driver.start_rx_copier(enable_rx_intr);
+driver.start_tx_copier(enable_tx_intr);
+
+// 4. 使用 AsyncUartReader/Writer
+let reader = AsyncUartReader::new(Arc::clone(&driver));
+let writer = AsyncUartWriter::new(Arc::clone(&driver));
+```
+
+### 关键设计决策
+
+- **UartPort trait**: 解决 `Uart16550::receive_bytes/send_bytes` 需要 `&mut self` 的问题
+- **OsSpinNoIrq 回调模式**: `with_lock` 避免 guard 生命周期问题
+- **&'static Self**: 驱动使用 `&'static Self` 而非 `Arc<Self>`，兼容 no-alloc
+- **OS 拥有静态变量**: RingBuffer::new() 静态变量由 OS 拥有，传 `&'static` 给 uart_16550
 
 ---
 
