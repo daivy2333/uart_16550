@@ -192,6 +192,9 @@ mod embedded_io;
 mod error;
 mod tty;
 
+#[cfg(feature = "async")]
+pub mod async_;
+
 /// Powerful abstraction over a [16550 UART device][uart] with access to
 /// low-level details paired with strong flexibility for higher-level layers.
 ///
