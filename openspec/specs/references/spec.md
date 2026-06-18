@@ -117,3 +117,12 @@
 - **WHEN** 开发者需要量化性能或设计分层架构
 - **THEN** 阅读 `.claude/analysis/async-architecture.md`（4 层架构 + 性能数据 + ISR 流程图 + StarryOS Q6 对接）
 - **AND** 关键数据：spin_loop 100% CPU vs 异步 ISR ~0% CPU（空闲时）
+
+---
+
+## 子项目索引
+
+<!-- 由 openspec-liaison 写入，由 openspec-assistant 日常维护，由 openspec-archivist 周期清理。 -->
+<!-- 添加时格式: <!-- R{编号} --> | 子项目 | 路径 | 文档体系 | 摘要 | 最近更新 | -->
+
+<!-- R1 --> | StarryOS | ../StarryOS | OpenSpec✓ config✓ specs✓(4 主 + 4 delta) changes✗(archive only) cg✓ | 主项目 — RISC-V 异步串口 OS，Q0~Q13 完成（含 async trait 提取 + ArceOS 适配 + inline-batch 优化），Q6 等待硬件 | 2026-06-16 |
