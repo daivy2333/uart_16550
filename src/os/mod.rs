@@ -2,9 +2,14 @@
 
 //! OS abstraction traits for cross-platform async UART support.
 //!
-//! This module defines platform-independent traits that allow the async UART
-//! driver to be ported to different operating systems by implementing these
-//! traits for each target OS.
+//! This module defines the **minimum viable interface** that the async UART
+//! driver requires from a target OS: task spawning (`OsRuntime`) and waker
+//! management (`OsWakerSet`). These are the only OS capabilities the driver
+//! actually calls — IRQ registration, MMIO mapping, and lock acquisition
+//! are handled externally by the OS adapter layer, keeping the driver
+//! logic platform-independent without unnecessary abstraction.
+//!
+//! See ADR-036 for the design rationale behind the 2-trait minimum.
 
 use core::future::Future;
 use core::task::Waker;
@@ -31,62 +36,6 @@ pub trait OsRuntime {
     fn block_on<F>(future: F) -> F::Output
     where
         F: Future;
-}
-
-/// Interrupt handler registration abstraction.
-///
-/// This trait allows the UART driver to register interrupt handlers for
-/// hardware IRQ lines without depending on a specific interrupt controller
-/// implementation.
-pub trait OsIrq {
-    /// Register an interrupt handler for the given IRQ number.
-    ///
-    /// The handler function receives the IRQ number as its argument. It must
-    /// be safe to call from interrupt context.
-    fn register_handler(irq_number: usize, handler: fn(usize));
-}
-
-/// MMIO memory mapping abstraction.
-///
-/// This trait provides platform-specific MMIO memory mapping capabilities,
-/// allowing the UART driver to access memory-mapped device registers without
-/// depending on a specific virtual memory implementation.
-pub trait OsMmio {
-    /// Map physical MMIO region to virtual memory.
-    ///
-    /// Returns a non-null pointer to the mapped region.
-    ///
-    /// # Safety
-    ///
-    /// - `phys_addr` must be a valid MMIO region for the UART device
-    /// - `size` must correctly represent the size of the MMIO region
-    /// - The mapped region must remain valid for the lifetime of the UART device
-    unsafe fn map_mmio(phys_addr: usize, size: usize) -> core::ptr::NonNull<u8>;
-
-    /// Convert physical address to virtual address.
-    ///
-    /// This is used when the physical address is already mapped (e.g., via
-    /// identity mapping in kernel space) and only a pointer conversion is needed.
-    fn phys_to_virt(phys_addr: usize) -> core::ptr::NonNull<u8>;
-}
-
-/// IRQ-safe spinlock abstraction using callback pattern.
-///
-/// This trait provides a spinlock that disables interrupts while the lock is
-/// held, preventing deadlocks when the lock is acquired from both process
-/// context and interrupt context. The callback pattern ensures that interrupts
-/// are always re-enabled when the lock is released.
-///
-/// The generic parameter `T` is the type of data protected by the lock.
-pub trait OsSpinNoIrq<T> {
-    /// Create a new spinlock protecting the given value.
-    fn new(val: T) -> Self;
-
-    /// Execute a closure with the lock held and IRQs disabled.
-    ///
-    /// The lock is released and IRQs re-enabled after the closure returns,
-    /// regardless of whether the closure panics or returns normally.
-    fn with_lock<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
 }
 
 /// Waker registration and notification abstraction.
