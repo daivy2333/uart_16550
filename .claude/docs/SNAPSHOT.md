@@ -1,18 +1,18 @@
 # SNAPSHOT.md - 项目快照
 
 > Generated at 2026-05-25
-> Last updated: 2026-06-17
-> 2026-06-03: 文档体系迁移到 OpenSpec（架构/学习/参考/优化/规则已迁出，保留 SNAPSHOT + tasks）
-> 2026-06-17: 同步 feat/uart-16550-async 分支（Q13 async extraction 完成 + 5 性能优化提交）
+> Last updated: 2026-06-21
+> 2026-06-21: M4 Sync 已回退到 pre-M4 基线（60c5729），原代码保留在 feat/uart-16550-async-temp。Q15 增量重融合进行中。
+> 2026-06-17: 同步 feat/uart-16550-async 分支（Q13 async extraction 完成）
 
 ---
 
 ## 当前状态
 
-**Phase**: 异步特性开发中（Q13 async extraction 已完成，性能优化迭代中）
-**Status**: v0.6.0 基础上新增 `async` feature，提供完整异步 UART 栈（ISR + ring buffer + copier + device_ops），作为 StarryOS 高性能异步串口的可复用底层模块
-**Branch**: feat/uart-16550-async（领先 main 21 commits）
-**文档体系**: OpenSpec (openspec/specs/*) + .claude/docs/{SNAPSHOT,tasks} + 5 个 .md.bak 备份
+**Phase**: Q15 M4+ 增量重融合
+**Status**: 已回退到 pre-M4 基线（60c5729 — OS trait 清理），代码与 StarryOS `04f8920` 对应
+**Branch**: feat/uart-16550-async（与 StarryOS 同名分支协同开发）
+**文档体系**: OpenSpec (openspec/specs/*) + .claude/docs/{SNAPSHOT,tasks}
 
 ---
 
@@ -31,14 +31,14 @@ uart_16550/
 │   │   ├── mod.rs           # Backend trait, RegisterAddress trait (sealed)
 │   │   ├── mmio.rs          # MmioBackend (NonNull<u8>, 用户指定 stride)
 │   │   └── pio.rs           # PioBackend (u16 端口, stride=1 固定)
-│   ├── os/                 # [Q13 async] 5 OS 抽象 trait
-│   │   └── mod.rs           # OsRuntime, OsIrq, OsMmio, OsSpinNoIrq, OsWakerSet
+│   ├── os/                 # [Q13 async] 2 OS 抽象 trait（ADR-036 清理后）
+│   │   └── mod.rs           # OsRuntime, OsWakerSet
 │   └── async_/             # [Q13 async] 异步 UART 栈（async feature）
 │       ├── mod.rs           # 模块入口
-│       ├── isr.rs           # ISR handler + AtomicWaker
-│       ├── ring_buffer.rs   # RingBufRx/RingBufTx (embassy SPSC + 批量操作)
-│       ├── driver.rs        # AsyncUartDriver + UartPort trait (NAPI copier)
-│       └── device_ops.rs    # AsyncUartReader/Writer (TtyRead/TtyWrite + embedded_io_async)
+│       ├── isr.rs           # 旧版全局 waker（已弃用，保留兼容）→ 新路径: driver.handle_irq()
+│       ├── ring_buffer.rs   # RingBufRx/RingBufTx（TX writer 由 RawMutex 保护）
+│       ├── driver.rs        # AsyncUartDriver + UartPort trait（per-port waker + handle_irq）
+│       └── device_ops.rs    # AsyncUartReader/Writer（register→recheck→Pending 等待）
 ├── tests/
 │   └── api.rs              # 编译期 API 类型可见性测试
 ├── test/                    # QEMU i386 硬件测试子项目
@@ -100,9 +100,20 @@ uart_16550/
 ## Git 状态
 
 **当前分支**: feat/uart-16550-async
-**最近提交**: 37f60fb - revert(uart-async): disable LTO during active development (ADR-034)
-**领先 main**: 21 commits（Q13 async extraction + 性能优化 + 文档）
-**未提交更改**: 无（working tree clean，仅 `.codegraph/daemon.pid`）
+**最近提交**（正确性修复系列 12 commits）:
+  - 3c90aff feat(uart-async): NAPI byte budget with cooperative yield (7.x)
+  - 308c3fe fix(uart-async): loopback state recovery on all error paths (6.x)
+  - e2e50a7 fix(uart-async): checked arithmetic in baud rate calculations (5.x)
+  - 0090bbe feat(uart-async): per-port IRQ state with UartPort backend-aware ISR (4.x)
+  - 924f500 feat(uart-async): yield_now + TEMT + real flush (3.4-3.5)
+  - 8a5e61b fix(uart-async): async waiting for embedded-io-async Read/Write (3.3)
+  - db49b98 fix(uart-async): register→recheck→Pending protocol in TX copier (3.2)
+  - 76a21c7 test(uart-async): RED tests for lost-wake and async I/O (3.1)
+  - 739968a feat(uart-async): take_reader() one-shot gate (2.3)
+  - 4023ce6 feat(uart-async): RawMutex to RingBufTx (2.2)
+  - 463d897 test(uart-async): RED tests for endpoint ownership (2.1)
+  - 144bd4a test(uart-async): isolate test storage per test (1.2)
+**测试**: 56 unit + 1 integ + 8 doctest = 65 passed, clippy 0 warnings
 
 ---
 
@@ -116,23 +127,28 @@ uart_16550 是 StarryOS 串口子系统的底层驱动模块，Q13 之后提供*
   - Ring buffer（embassy SPSC + 批量 push/pop）
   - Copier driver（NAPI coalescing）
   - Device ops（AsyncUartReader/Writer，集成 TtyRead/TtyWrite + embedded-io-async）
-- OS 抽象层（5 trait）：StarryOS 仅需实现 `OsRuntime` / `OsIrq` / `OsMmio` / `OsSpinNoIrq` / `OsWakerSet`（~50 行）
+- OS 抽象层（2 trait，ADR-036 清理后）：StarryOS 仅需实现 `OsRuntime` / `OsWakerSet`
+- Per-port IRQ 状态：waker 从全局 static 迁移到 AsyncUartDriver 实例字段
+- Backend-aware ISR：通过 UartPort trait 访问寄存器，保留 stride/架构语义
+- TX 安全共享：RingBufTx 使用 RawMutex 保护 writer，支持 Clone-safe AsyncUartWriter
 
 **架构分工**（Q13 完成后）：
 ```
 uart_16550 crate (async feature)
 ├── 硬件驱动层：Uart16550<MmioBackend>
-├── 异步逻辑层：ISR + ring buffer + copier + device_ops
-└── OS 抽象层：5 trait
+├── 异步逻辑层：per-port ISR + ring buffer + copier + device_ops
+├── OS 抽象层：2 trait (OsRuntime, OsWakerSet)
+└── UartPort trait：IRQ-safe 寄存器访问 (update_ier, read_isr, read_lsr, read_msr)
 StarryOS kernel
-├── 适配层：实现 5 OS trait
-└── 集成层：初始化 + TTY 绑定
+├── 适配层：ArceOsRawMutex + ArceOsRuntime + ArceOsWakerSet + ArceOsUartPort
+└── 集成层：初始化 + TTY 绑定 + ISR 接线 (driver.handle_irq())
 ```
 
 ---
 
 ## 下一步
 
-- Q6 等待硬件（StarryOS 端）
-- 评估 LTO 重新启用时机（ADR-034 临时禁用，待稳定后恢复）
-- 维护 Q13 异步栈稳定性，跟踪 overhead 优化（inline + batch 已落地）
+- Q6: VisionFive2 真板验证（StarryOS 侧，等待硬件）
+- 评估 LTO 重新启用时机（ADR-034）
+- M5: ArceOS stdin/stdout/readiness 接入（在 ArceOS 侧进行）
+- 归档 OpenSpec 变更 `fix-uart-correctness-invariants`
