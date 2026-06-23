@@ -1,9 +1,8 @@
 # tasks.md — 任务追踪
 
 > 由 openspec-assistant 日常维护。
-> Last updated: 2026-06-21 (M4 Sync 已回退，Q15 增量重融合)
-> 2026-06-21: M4 Sync 回退到 pre-M4 基线（60c5729），原代码保留在 feat/uart-16550-async-temp。
-> Q15 阶段从 pre-M4 基线出发，按最小可验证单元重新 apply M4+ 正确性修复。
+> Last updated: 2026-06-23 (Q15 M3 TtyWrite short-write contract 完成)
+> 2026-06-23: M3 完成 — TtyWrite::write 返回 usize，双仓库 5 文件 + benchmark，54 tests PASS，QEMU 无退化。
 > 条目格式: <!-- T{编号} --> 标记开头，支持 grep 精确定位。
 
 ---
@@ -20,6 +19,7 @@
 
 ## 已完成
 
+<!-- T21 --> - [x] **Q15 M3**: TtyWrite short-write contract — `fn write(&self, buf: &[u8]) -> usize` (2026-06-23)
 <!-- T13 --> - [x] **M4.1 ring 指标**: RingBufRx/Tx 指标 — 2026-06-19
 <!-- T14 --> - [x] **M4.2 copier 指标**: AsyncUartDriver 指标 — 2026-06-19
 <!-- T15 --> - [x] **M4.3 waker 顺序修复**: register→enable 顺序 — 2026-06-19

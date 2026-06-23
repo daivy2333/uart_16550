@@ -1,7 +1,8 @@
 # SNAPSHOT.md - 项目快照
 
 > Generated at 2026-05-25
-> Last updated: 2026-06-21
+> Last updated: 2026-06-23
+> 2026-06-23: Q15 M3 TtyWrite short-write contract 完成 — `write(&[u8]) -> usize` breaking change，QEMU benchmark 验证无退化。
 > 2026-06-21: M4 Sync 已回退到 pre-M4 基线（60c5729），原代码保留在 feat/uart-16550-async-temp。Q15 增量重融合进行中。
 > 2026-06-17: 同步 feat/uart-16550-async 分支（Q13 async extraction 完成）
 
@@ -9,8 +10,8 @@
 
 ## 当前状态
 
-**Phase**: Q15 M4+ 增量重融合
-**Status**: 已回退到 pre-M4 基线（60c5729 — OS trait 清理），代码与 StarryOS `04f8920` 对应
+**Phase**: Q15 全部完成（M0-M4 ✅）
+**Status**: M0 waker race ✅ M1 fast retry ✅ M2 TxCompletion ✅ M3 TtyWrite short-write contract ✅ M4 IER single owner ✅。QEMU Manual QA 通过，无退化。
 **Branch**: feat/uart-16550-async（与 StarryOS 同名分支协同开发）
 **文档体系**: OpenSpec (openspec/specs/*) + .claude/docs/{SNAPSHOT,tasks}
 

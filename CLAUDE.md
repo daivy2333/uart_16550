@@ -4,7 +4,7 @@
 > Project: uart_16550
 > Type: Rust no_std embedded library (v0.6.0 + async extension)
 > Document system: OpenSpec (migrated from .claude/docs/ on 2026-06-03)
-> Last updated: 2026-06-16 (Q13 async extraction completed)
+> Last updated: 2026-06-23 (Q15 M3 TtyWrite short-write contract 完成)
 
 ---
 

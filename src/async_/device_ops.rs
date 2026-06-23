@@ -104,11 +104,11 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Clone
 impl<R: OsRuntime + 'static, W: OsWakerSet + 'static, U: UartPort> TtyWrite
     for AsyncUartWriter<R, W, U>
 {
-    fn write(&self, buf: &[u8]) {
+    fn write(&self, buf: &[u8]) -> usize {
         if buf.is_empty() {
-            return;
+            return 0;
         }
-        self.driver.tx.push(buf);
+        self.driver.tx.push(buf)
     }
 }
 
