@@ -225,6 +225,14 @@ impl<W: OsWakerSet> RingBufTx<W> {
         n
     }
 
+    /// Check if the ring buffer is empty (used by flush/tcdrain via tx_completion).
+    pub fn is_empty(&self) -> bool {
+        // SAFETY: pop_buf is a read-only query that returns (ptr, len).
+        // We do not call pop_done, so no data is consumed. The &mut self
+        // requirement is satisfied via UnsafeCell interior mutability.
+        unsafe { (&mut *self.reader.get()).pop_buf().1 == 0 }
+    }
+
     /// Register a waker to be notified when space is available.
     pub fn register_waker(&self, waker: &Waker) {
         self.poll.register(waker);

@@ -8,8 +8,11 @@
 
 use alloc::sync::Arc;
 use core::fmt;
+use core::future::poll_fn;
+use core::task::Poll;
 
 use super::driver::{AsyncUartDriver, UartPort};
+use super::isr::DRAIN_WAKER;
 use crate::os::{OsRuntime, OsWakerSet};
 use crate::tty::{TtyRead, TtyWrite};
 
@@ -127,7 +130,31 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> embedded_io_async::Write
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        // TX data is drained by the copier task; no explicit flush needed.
-        Ok(())
+        poll_fn(|cx| {
+            let c = self.driver.tx_completion();
+            if c.is_drained() {
+                return Poll::Ready(Ok(()));
+            }
+
+            // Register waker before recheck (M1 D3 order: register → check)
+            // Wake path depends on what's still pending:
+            if !c.ring_empty || c.copier_active || c.staged_bytes > 0 {
+                // Software side not done — wake when ring data is processed
+                self.driver.tx.register_waker(cx.waker());
+            }
+            if c.staged_bytes == 0 && !c.copier_active && c.ring_empty {
+                // Software done, only TEMT pending — wake on ISR DRAIN_WAKER
+                DRAIN_WAKER.register(cx.waker());
+            }
+
+            // Recheck after registering waker
+            let c2 = self.driver.tx_completion();
+            if c2.is_drained() {
+                Poll::Ready(Ok(()))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
