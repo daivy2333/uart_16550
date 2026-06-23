@@ -15,6 +15,9 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+#[cfg(feature = "telemetry")]
+use core::sync::atomic::Ordering;
+
 use super::isr::{RX_WAKER, TX_WAKER};
 use super::ring_buffer::{RingBufRx, RingBufTx};
 use crate::os::{OsRuntime, OsWakerSet};
@@ -72,6 +75,10 @@ pub struct AsyncUartDriver<R: OsRuntime, W: OsWakerSet, U: UartPort> {
     /// TX ring buffer — data flows from producers to UART.
     pub tx: RingBufTx<W>,
     uart: &'static U,
+    #[cfg(feature = "telemetry")]
+    /// Diagnostic counters for TX copier behavior (only available
+    /// with the `telemetry` feature).
+    pub telemetry: crate::async_::telemetry::Telemetry,
     _runtime: PhantomData<R>,
 }
 
@@ -109,8 +116,16 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
             rx,
             tx,
             uart,
+            #[cfg(feature = "telemetry")]
+            telemetry: crate::async_::telemetry::Telemetry::new(),
             _runtime: PhantomData,
         }
+    }
+
+    /// Get a reference to the telemetry counters (only available with `telemetry` feature).
+    #[cfg(feature = "telemetry")]
+    pub const fn telemetry(&self) -> &crate::async_::telemetry::Telemetry {
+        &self.telemetry
     }
 
     /// Start the RX copier task.
@@ -215,6 +230,9 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
 
         loop {
             poll_fn(|cx| {
+                #[cfg(feature = "telemetry")]
+                self.telemetry.tx_poll.fetch_add(1, Ordering::Relaxed);
+
                 // If we've sent all pending data, get more from ring buffer
                 if cursor >= pending {
                     pending = self.tx.pop_batch(&mut write_buf);
@@ -229,6 +247,17 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                 let sent =
                     self.uart.send_bytes(&write_buf[cursor..pending]);
                 cursor += sent;
+
+                #[cfg(feature = "telemetry")]
+                if sent > 0 {
+                    self.telemetry
+                        .tx_hw_bytes
+                        .fetch_add(sent as u64, Ordering::Relaxed);
+                } else {
+                    self.telemetry
+                        .tx_no_progress
+                        .fetch_add(1, Ordering::Relaxed);
+                }
 
                 // If we couldn't send everything, enable TX interrupt
                 // for the next opportunity
