@@ -91,7 +91,8 @@ pub struct TxCompletion {
 
 impl TxCompletion {
     /// Returns `true` when all four drain conditions are satisfied.
-    pub fn is_drained(&self) -> bool {
+    #[must_use]
+    pub const fn is_drained(&self) -> bool {
         self.ring_empty && !self.copier_active && self.staged_bytes == 0 && self.transmitter_empty
     }
 }
@@ -132,17 +133,11 @@ pub struct AsyncUartDriver<R: OsRuntime, W: OsWakerSet, U: UartPort> {
 // - RingBufRx<W>/RingBufTx<W> have explicit unsafe Send+Sync impls
 // - &'static U is Send+Sync when U: Send+Sync (guaranteed by UartPort)
 // - PhantomData<R> is Send+Sync unconditionally
-unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Send
-    for AsyncUartDriver<R, W, U>
-{}
+unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Send for AsyncUartDriver<R, W, U> {}
 // SAFETY: Same reasoning as Send — all fields are Sync-safe.
-unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Sync
-    for AsyncUartDriver<R, W, U>
-{}
+unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Sync for AsyncUartDriver<R, W, U> {}
 
-impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug
-    for AsyncUartDriver<R, W, U>
-{
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug for AsyncUartDriver<R, W, U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AsyncUartDriver").finish_non_exhaustive()
     }
@@ -153,11 +148,7 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
     ///
     /// The `uart` reference must be `'static` as it will be shared with
     /// spawned copier tasks that outlive the creating scope.
-    pub const fn new(
-        rx: RingBufRx<W>,
-        tx: RingBufTx<W>,
-        uart: &'static U,
-    ) -> Self {
+    pub const fn new(rx: RingBufRx<W>, tx: RingBufTx<W>, uart: &'static U) -> Self {
         Self {
             rx,
             tx,
@@ -178,8 +169,12 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
     pub fn tx_completion(&self) -> TxCompletion {
         TxCompletion {
             ring_empty: self.tx.is_empty(),
-            copier_active: self.tx_copier_active.load(core::sync::atomic::Ordering::Relaxed),
-            staged_bytes: self.tx_staged_bytes.load(core::sync::atomic::Ordering::Relaxed),
+            copier_active: self
+                .tx_copier_active
+                .load(core::sync::atomic::Ordering::Relaxed),
+            staged_bytes: self
+                .tx_staged_bytes
+                .load(core::sync::atomic::Ordering::Relaxed),
             transmitter_empty: self.uart.transmitter_empty(),
         }
     }
@@ -245,8 +240,7 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                         self.uart.update_ier(IER::DATA_READY, IER::empty());
                     }
                 } else {
-                    consecutive =
-                        if total > 0 { consecutive + 1 } else { 0 };
+                    consecutive = if total > 0 { consecutive + 1 } else { 0 };
                 }
 
                 if consecutive < NAPI_THRESHOLD {
@@ -277,18 +271,21 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                 #[cfg(feature = "telemetry")]
                 self.telemetry.tx_poll.fetch_add(1, Ordering::Relaxed);
 
-                self.tx_copier_active.store(true, core::sync::atomic::Ordering::Relaxed);
+                self.tx_copier_active
+                    .store(true, core::sync::atomic::Ordering::Relaxed);
 
                 // If we've sent all pending data, get more from ring buffer
                 if cursor >= pending {
                     pending = self.tx.pop_batch(&mut write_buf);
                     cursor = 0;
                     if pending > 0 {
-                        self.tx_staged_bytes.fetch_add(pending, core::sync::atomic::Ordering::Relaxed);
+                        self.tx_staged_bytes
+                            .fetch_add(pending, core::sync::atomic::Ordering::Relaxed);
                     }
                     if pending == 0 {
                         self.tx.register_waker(cx.waker());
-                        self.tx_copier_active.store(false, core::sync::atomic::Ordering::Relaxed);
+                        self.tx_copier_active
+                            .store(false, core::sync::atomic::Ordering::Relaxed);
                         return Poll::Pending;
                     }
                 }
@@ -296,11 +293,11 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                 // Bounded retry inner loop
                 let mut retries = 0usize;
                 loop {
-                    let sent =
-                        self.uart.send_bytes(&write_buf[cursor..pending]);
+                    let sent = self.uart.send_bytes(&write_buf[cursor..pending]);
                     cursor += sent;
                     if sent > 0 {
-                        self.tx_staged_bytes.fetch_sub(sent, core::sync::atomic::Ordering::Relaxed);
+                        self.tx_staged_bytes
+                            .fetch_sub(sent, core::sync::atomic::Ordering::Relaxed);
                     }
 
                     #[cfg(feature = "telemetry")]
@@ -335,11 +332,11 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                     TX_WAKER.register(cx.waker());
                     self.uart.update_ier(IER::THR_EMPTY, IER::empty());
 
-                    let sent =
-                        self.uart.send_bytes(&write_buf[cursor..pending]);
+                    let sent = self.uart.send_bytes(&write_buf[cursor..pending]);
                     cursor += sent;
                     if sent > 0 {
-                        self.tx_staged_bytes.fetch_sub(sent, core::sync::atomic::Ordering::Relaxed);
+                        self.tx_staged_bytes
+                            .fetch_sub(sent, core::sync::atomic::Ordering::Relaxed);
                     }
 
                     #[cfg(feature = "telemetry")]
@@ -358,7 +355,8 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                     }
 
                     // Still no progress — yield to scheduler, wait for ISR
-                    self.tx_copier_active.store(false, core::sync::atomic::Ordering::Relaxed);
+                    self.tx_copier_active
+                        .store(false, core::sync::atomic::Ordering::Relaxed);
                     return Poll::Pending;
                 }
 

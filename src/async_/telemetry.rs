@@ -31,7 +31,10 @@ impl fmt::Debug for Telemetry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Telemetry")
             .field("tx_poll", &self.tx_poll.load(Ordering::Relaxed))
-            .field("tx_no_progress", &self.tx_no_progress.load(Ordering::Relaxed))
+            .field(
+                "tx_no_progress",
+                &self.tx_no_progress.load(Ordering::Relaxed),
+            )
             .field("tx_hw_bytes", &self.tx_hw_bytes.load(Ordering::Relaxed))
             .finish()
     }

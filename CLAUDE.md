@@ -23,7 +23,7 @@ uart_16550 是一个 Rust `no_std` 嵌入式库，提供 16550 UART 设备的**�
 |------|------|----------|
 | **同步层** | 寄存器访问、配置、收发 | 直接控制 UART 硬件 |
 | **异步层** | ISR + ring buffer + copier + device_ops | 高性能异步 I/O，零阻塞 |
-| **OS 抽象层** | 5 个 trait（OsRuntime, OsIrq, OsMmio, OsSpinNoIrq, OsWakerSet） | 跨平台可移植性 |
+| **OS 抽象层** | 2 个 trait (OsRuntime, OsWakerSet，ADR-036) | 跨平台可移植性 |
 
 ### 核心特性
 
@@ -37,14 +37,14 @@ uart_16550 是一个 Rust `no_std` 嵌入式库，提供 16550 UART 设备的**�
 
 ### 在 StarryOS 中的角色
 
-RISC-V 平台使用 `Uart16550<MmioBackend>::new_mmio(0x10000000, 1)` 构造。启用 `async` feature 后，uart_16550 提供**完整异步 UART 栈**（ISR + ring buffer + copier + device_ops），StarryOS 只需实现 5 个 OS 抽象 trait（~50 行代码）。
+RISC-V 平台使用 `Uart16550<MmioBackend>::new_mmio(0x10000000, 1)` 构造。启用 `async` feature 后，uart_16550 提供**完整异步 UART 栈**（ISR + ring buffer + copier + device_ops），StarryOS 只需实现 2 个 OS 抽象 trait（~50 行代码）。
 
 **架构分工**：
 ```
 uart_16550 crate (async feature)
 ├── 硬件驱动层：Uart16550<MmioBackend> + 寄存器操作
 ├── 异步逻辑层：ISR handler + ring buffer + copier + device_ops
-└── OS 抽象层：5 个 trait（OsRuntime, OsIrq, OsMmio, OsSpinNoIrq, OsWakerSet）
+└── OS 抽象层：2 个 trait (OsRuntime, OsWakerSet，ADR-036)
 
 StarryOS kernel
 ├── 适配层：实现 5 个 OS trait（os_arceos.rs, ~50 行）
@@ -95,7 +95,7 @@ StarryOS kernel
 
 ```
 uart_16550 crate (async feature)
-├── os/mod.rs — 5 OS 抽象 trait（跨平台接口）
+├── os/mod.rs — 2 OS 抽象 trait（ADR-036：跨平台最小接口）
 ├── async_/isr.rs — ISR handler + AtomicWaker（中断处理）
 ├── async_/ring_buffer.rs — RingBufRx/RingBufTx（embassy SPSC + 批量操作）
 ├── async_/driver.rs — AsyncUartDriver + UartPort trait（NAPI copier）
@@ -124,12 +124,11 @@ TX copier:
 
 ### OS 抽象 Trait
 
+ADR-036 清理后仅保留 2 个 trait（IRQ 注册 / MMIO 映射 / IRQ 安全锁由 OS 适配层外部处理，详见 `src/os/mod.rs` 文档注释）：
+
 | Trait | 用途 | 方法 | 典型实现 |
 |-------|------|------|----------|
 | `OsRuntime` | 任务调度 | `spawn<F>(future, name)`, `block_on<F>(future)` | axtask, std::thread |
-| `OsIrq` | 中断注册 | `register_handler(irq_number, handler)` | axhal, request_irq |
-| `OsMmio` | MMIO 映射 | `map_mmio(phys, size)`, `phys_to_virt(phys)` | axmm, ioremap |
-| `OsSpinNoIrq<T>` | IRQ 安全锁 | `new(val)`, `with_lock<R>(&self, f)` | kspin, spinlock_irqsave |
 | `OsWakerSet` | 唤醒器管理 | `new()`, `register(waker)`, `wake() -> u32` | axpoll::PollSet |
 
 ### UartPort Trait

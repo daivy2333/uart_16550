@@ -19,7 +19,7 @@
 
 ## 已完成
 
-<!-- T21 --> - [x] **Q15 M3**: TtyWrite short-write contract — `fn write(&self, buf: &[u8]) -> usize` (2026-06-23)
+<!-- T32 --> - [x] **Q15 M3**: TtyWrite short-write contract — `fn write(&self, buf: &[u8]) -> usize` (2026-06-23)
 <!-- T13 --> - [x] **M4.1 ring 指标**: RingBufRx/Tx 指标 — 2026-06-19
 <!-- T14 --> - [x] **M4.2 copier 指标**: AsyncUartDriver 指标 — 2026-06-19
 <!-- T15 --> - [x] **M4.3 waker 顺序修复**: register→enable 顺序 — 2026-06-19
@@ -39,10 +39,10 @@
 <!-- T29 --> - [x] **F11**: 计算 panic → checked arithmetic + Error
 <!-- T30 --> - [x] **F12**: 测试不真实 → 每测试独立 storage + poll 路径
 
-## 阻塞项
-
-<!-- T31 --> - **⚠️ 性能退化**: write+tcdrain benchmark 5.4x 开销。RingBufTx::push() 每调用获取 SpinNoIrq + RefCell::borrow_mut，ISR handle_irq 路径同样获取 SpinNoIrq（ArceOsUartPort 方法）。两路径竞争同一 SpinNoIrq 实例，形成锁竞争退化。待优化方向：(1) Mutex 内 RefCell→UnsafeCell (2) handle_irq 单次锁复用。
-
 ## OpenSpec 变更
 
 - `fix-uart-correctness-invariants` — 12 项修复全部完成，65 tests GREEN，待归档
+
+---
+
+<!-- arc: ARC-202606241146 --> 1 条已归档 (T31) (2026-06-24) → ../openspec/changes/ARC-202606241146/proposal.md

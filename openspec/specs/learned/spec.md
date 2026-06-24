@@ -247,6 +247,8 @@ Config struct 的字段、类型、默认值 MUST 可通过 spec 速查。
 
 核心模块依赖关系和类型关系 MUST 记录在 spec 中。
 
+⚠️ STALE [2026-06-24] — 自 2026-05-25 迁移以来未更新，async feature 5 个新模块路径（async_/isr.rs / ring_buffer.rs / driver.rs / device_ops.rs / os/mod.rs）未含。建议 30 天内补齐或 Archive。
+
 #### Scenario: 理解核心依赖链
 
 - **WHEN** 开发者需要理解模块依赖
@@ -291,7 +293,6 @@ Config struct 的字段、类型、默认值 MUST 可通过 spec 速查。
 - **THEN** 可以关注：
   - 硬件测试子项目（test/）的启动流程和调试接口用法
   - `Config::prescaler_division_factor` 的实际硬件使用场景
-  - embedded-io feature 在 StarryOS 中的集成方式
 
 ### Requirement: 异步适配层 API 速查
 
@@ -406,3 +407,7 @@ SPSC producer/consumer 的唯一性 MUST 由类型所有权保证；`UnsafeCell<
 - **THEN** producer 和 consumer capability MUST 各自唯一且不可复制
 - **AND** 禁止为可 Clone/可重复构造的 wrapper 无条件实现 `Sync`
 - **AND** 多生产者或多消费者需求必须改用匹配并发模型的数据结构或显式锁
+
+---
+
+<!-- arc: ARC-202606241146 --> 1 条已归档 (L_EXP-3) (2026-06-24) → ./changes/ARC-202606241146/proposal.md
