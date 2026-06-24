@@ -9,6 +9,8 @@
   silent data loss bug where `Tty::write_at` claimed full acceptance when the
   output buffer was full. echo paths in ldisc should use `let _ = writer.write(...)`.
   (Q15 M3)
+- **Breaking:** Changed the return type of `Uart16550::config(&self)` from
+  `(&Config, &B::Address)` to `(&Config, &B)` (synced from upstream #61)
 
 ### Added
 - **`async` feature gate** for interrupt-driven async UART support
