@@ -6,10 +6,10 @@
 //! corresponding interrupt, and wakes the appropriate async waker.
 
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU64, Ordering};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::spec::registers::{InterruptType, IER, ISR, LSR, offsets};
+use crate::spec::registers::{ISR, InterruptType, LSR, offsets};
 
 /// RX data ready waker — woken when data arrives.
 pub static RX_WAKER: AtomicWaker = AtomicWaker::new();
@@ -68,48 +68,16 @@ impl IsrRegisters {
             LSR::from_bits_retain(ptr.read_volatile())
         }
     }
-
-    /// Disable RX interrupt (clear `DATA_READY` bit in IER).
-    ///
-    /// # Safety
-    ///
-    /// The base address must be valid and the IER register must be mapped.
-    pub(crate) unsafe fn disable_rx_intr(&self, cached_ier: &AtomicU8) {
-        let current = cached_ier.load(Ordering::Relaxed);
-        let new_val = current & !IER::DATA_READY.bits();
-        cached_ier.store(new_val, Ordering::Relaxed);
-        // SAFETY: Caller guarantees base is valid and IER is mapped.
-        unsafe {
-            let ptr = self.base.as_ptr().add(offsets::IER);
-            ptr.write_volatile(new_val);
-        }
-    }
-
-    /// Disable TX interrupt (clear `THR_EMPTY` bit in IER).
-    ///
-    /// # Safety
-    ///
-    /// The base address must be valid and the IER register must be mapped.
-    pub(crate) unsafe fn disable_tx_intr(&self, cached_ier: &AtomicU8) {
-        let current = cached_ier.load(Ordering::Relaxed);
-        let new_val = current & !IER::THR_EMPTY.bits();
-        cached_ier.store(new_val, Ordering::Relaxed);
-        // SAFETY: Caller guarantees base is valid and IER is mapped.
-        unsafe {
-            let ptr = self.base.as_ptr().add(offsets::IER);
-            ptr.write_volatile(new_val);
-        }
-    }
 }
 
 /// UART ISR handler — called from IRQ context.
 ///
 /// This handler is minimal (ISR principle):
 /// 1. Read ISR to determine interrupt type
-/// 2. Disable the corresponding interrupt
+/// 2. Disable the corresponding interrupt via callbacks
 /// 3. Wake the appropriate waker
 /// 4. Return immediately
-pub fn uart_isr_handler(_irq: usize, base: NonNull<u8>, cached_ier: &AtomicU8) {
+pub fn uart_isr_handler(_irq: usize, base: NonNull<u8>, fn_disable_rx: fn(), fn_disable_tx: fn()) {
     IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
     // SAFETY: Called from ISR context with a valid base address.
     unsafe {
@@ -117,13 +85,12 @@ pub fn uart_isr_handler(_irq: usize, base: NonNull<u8>, cached_ier: &AtomicU8) {
         let isr = regs.read_isr();
 
         match isr.interrupt_type() {
-            Some(InterruptType::ReceivedDataReady)
-            | Some(InterruptType::ReceptionTimeout) => {
-                regs.disable_rx_intr(cached_ier);
+            Some(InterruptType::ReceivedDataReady) | Some(InterruptType::ReceptionTimeout) => {
+                fn_disable_rx();
                 RX_WAKER.wake();
             }
             Some(InterruptType::TransmitterHoldingRegisterEmpty) => {
-                regs.disable_tx_intr(cached_ier);
+                fn_disable_tx();
                 TX_WAKER.wake();
                 if regs.read_lsr().contains(LSR::TRANSMITTER_EMPTY) {
                     DRAIN_WAKER.wake();

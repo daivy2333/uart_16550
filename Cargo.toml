@@ -22,7 +22,7 @@ authors = [
 resolver = "3"
 
 [dependencies]
-bitflags = { version = "2.11", default-features = false, features = [] }
+bitflags = { version = "2.12", default-features = false, features = [] }
 embedded-io = { version = "0.7", optional = true }
 embassy-sync = { version = "0.6.2", default-features = false, optional = true }
 embassy-hal-internal = { version = "0.2", default-features = false, optional = true }
@@ -35,6 +35,7 @@ assert2 = { version = "0.4.0", default-features = false, features = [] }
 default = []
 embedded-io = ["dep:embedded-io"]
 async = ["dep:embassy-sync", "dep:embassy-hal-internal", "dep:embedded-io-async"]
+telemetry = []
 
 [package.metadata.docs.rs]
 all-features = true

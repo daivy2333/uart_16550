@@ -242,10 +242,16 @@ pub trait TtyRead: Send + Sync + 'static {
 /// Implementors push bytes to a hardware FIFO, ring buffer, or other
 /// backend. The [`write`](TtyWrite::write) method is non-blocking: it
 /// pushes as much of `buf` as capacity allows.
+///
+/// Returns the number of bytes actually accepted. Callers must handle
+/// short writes — the returned count may be less than `buf.len()` if
+/// the output sink is full.
 pub trait TtyWrite: Send + Sync + 'static {
     /// Write bytes from `buf` to the output sink.
     ///
-    /// The implementation should accept as many bytes as possible; bytes
-    /// that cannot be sent immediately may be buffered or discarded.
-    fn write(&self, buf: &[u8]);
+    /// Returns the number of bytes accepted. A return value of `0`
+    /// means no bytes could be accepted (sink is full). Callers should
+    /// loop on short writes until all bytes are accepted, or explicitly
+    /// ignore the return value for best-effort paths such as echo.
+    fn write(&self, buf: &[u8]) -> usize;
 }

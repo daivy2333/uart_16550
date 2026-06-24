@@ -15,9 +15,13 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+#[cfg(feature = "telemetry")]
+use core::sync::atomic::Ordering;
+
 use super::isr::{RX_WAKER, TX_WAKER};
 use super::ring_buffer::{RingBufRx, RingBufTx};
 use crate::os::{OsRuntime, OsWakerSet};
+use crate::spec::registers::IER;
 
 /// NAPI: consecutive successful reads before entering polling mode.
 pub const NAPI_THRESHOLD: u32 = 16;
@@ -25,6 +29,10 @@ pub const NAPI_THRESHOLD: u32 = 16;
 pub const NAPI_BATCH_SIZE: usize = 64;
 /// Copier buffer size for bulk operations.
 pub const COPIER_BUF_SIZE: usize = 1024;
+/// Maximum number of fast retries within a single poll when the UART FIFO is full.
+const TX_FAST_RETRY_LIMIT: usize = 32;
+/// Maximum spin iterations waiting for UART TEMT after last byte sent.
+const TX_TEMT_POLL_LIMIT: u32 = 256;
 
 /// UART hardware access abstraction for copier tasks.
 ///
@@ -49,6 +57,44 @@ pub trait UartPort: Send + Sync + 'static {
     /// Returns the number of bytes actually written (may be 0 if the
     /// transmit buffer is full).
     fn send_bytes(&self, buf: &[u8]) -> usize;
+
+    /// Check if the UART transmitter is fully empty.
+    ///
+    /// Returns `true` when both the FIFO and shift register are drained
+    /// (LSR TRANSMITTER_EMPTY bit is set), indicating all data has been
+    /// sent over the wire.
+    fn transmitter_empty(&self) -> bool;
+
+    /// Atomically update the IER register.
+    ///
+    /// Sets bits in `set` and clears bits in `clear`, using an internal
+    /// cache for read-modify-write.  The OS layer owns the cache and
+    /// the `set_ier` call that writes to hardware.
+    fn update_ier(&self, set: IER, clear: IER);
+}
+
+/// Snapshot of TX drain progress for flush/tcdrain polling.
+///
+/// All four conditions must be satisfied for a complete drain:
+/// `ring_empty && !copier_active && staged_bytes == 0 && transmitter_empty`
+#[derive(Debug, Clone, Copy)]
+pub struct TxCompletion {
+    /// Whether the TX ring buffer is empty.
+    pub ring_empty: bool,
+    /// Whether the TX copier is currently inside a poll cycle.
+    pub copier_active: bool,
+    /// Bytes popped from TX ring but not yet confirmed sent to UART FIFO.
+    pub staged_bytes: usize,
+    /// Whether the UART shift register is empty (LSR TRANSMITTER_EMPTY).
+    pub transmitter_empty: bool,
+}
+
+impl TxCompletion {
+    /// Returns `true` when all four drain conditions are satisfied.
+    #[must_use]
+    pub const fn is_drained(&self) -> bool {
+        self.ring_empty && !self.copier_active && self.staged_bytes == 0 && self.transmitter_empty
+    }
 }
 
 /// Async UART driver with RX/TX copier tasks.
@@ -71,7 +117,15 @@ pub struct AsyncUartDriver<R: OsRuntime, W: OsWakerSet, U: UartPort> {
     pub rx: RingBufRx<W>,
     /// TX ring buffer — data flows from producers to UART.
     pub tx: RingBufTx<W>,
+    /// Whether the TX copier is currently inside a poll cycle (set on entry, cleared before Pending).
+    pub tx_copier_active: core::sync::atomic::AtomicBool,
+    /// Bytes popped from TX ring but not yet confirmed sent to UART FIFO.
+    pub tx_staged_bytes: core::sync::atomic::AtomicUsize,
     uart: &'static U,
+    #[cfg(feature = "telemetry")]
+    /// Diagnostic counters for TX copier behavior (only available
+    /// with the `telemetry` feature).
+    pub telemetry: crate::async_::telemetry::Telemetry,
     _runtime: PhantomData<R>,
 }
 
@@ -79,17 +133,11 @@ pub struct AsyncUartDriver<R: OsRuntime, W: OsWakerSet, U: UartPort> {
 // - RingBufRx<W>/RingBufTx<W> have explicit unsafe Send+Sync impls
 // - &'static U is Send+Sync when U: Send+Sync (guaranteed by UartPort)
 // - PhantomData<R> is Send+Sync unconditionally
-unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Send
-    for AsyncUartDriver<R, W, U>
-{}
+unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Send for AsyncUartDriver<R, W, U> {}
 // SAFETY: Same reasoning as Send — all fields are Sync-safe.
-unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Sync
-    for AsyncUartDriver<R, W, U>
-{}
+unsafe impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Sync for AsyncUartDriver<R, W, U> {}
 
-impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug
-    for AsyncUartDriver<R, W, U>
-{
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug for AsyncUartDriver<R, W, U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AsyncUartDriver").finish_non_exhaustive()
     }
@@ -100,17 +148,41 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
     ///
     /// The `uart` reference must be `'static` as it will be shared with
     /// spawned copier tasks that outlive the creating scope.
-    pub const fn new(
-        rx: RingBufRx<W>,
-        tx: RingBufTx<W>,
-        uart: &'static U,
-    ) -> Self {
+    pub const fn new(rx: RingBufRx<W>, tx: RingBufTx<W>, uart: &'static U) -> Self {
         Self {
             rx,
             tx,
+            tx_copier_active: core::sync::atomic::AtomicBool::new(false),
+            tx_staged_bytes: core::sync::atomic::AtomicUsize::new(0),
             uart,
+            #[cfg(feature = "telemetry")]
+            telemetry: crate::async_::telemetry::Telemetry::new(),
             _runtime: PhantomData,
         }
+    }
+
+    /// Return a snapshot of the TX drain state.
+    ///
+    /// Each field is read independently with Relaxed ordering.
+    /// Polling callers (flush/tcdrain) repeatedly call this until
+    /// `is_drained()` returns true.
+    pub fn tx_completion(&self) -> TxCompletion {
+        TxCompletion {
+            ring_empty: self.tx.is_empty(),
+            copier_active: self
+                .tx_copier_active
+                .load(core::sync::atomic::Ordering::Relaxed),
+            staged_bytes: self
+                .tx_staged_bytes
+                .load(core::sync::atomic::Ordering::Relaxed),
+            transmitter_empty: self.uart.transmitter_empty(),
+        }
+    }
+
+    /// Get a reference to the telemetry counters (only available with `telemetry` feature).
+    #[cfg(feature = "telemetry")]
+    pub const fn telemetry(&self) -> &crate::async_::telemetry::Telemetry {
+        &self.telemetry
     }
 
     /// Start the RX copier task.
@@ -118,13 +190,10 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
     /// Spawns an async task that continuously reads from the UART and
     /// pushes data into the RX ring buffer. Uses NAPI-style interrupt
     /// coalescing for high throughput.
-    ///
-    /// `enable_rx_intr` is called to re-enable RX interrupts after data
-    /// has been consumed (or when the NAPI counter resets).
-    pub fn start_rx_copier(&'static self, enable_rx_intr: fn()) {
+    pub fn start_rx_copier(&'static self) {
         R::spawn(
             async move {
-                self.rx_copier_loop(enable_rx_intr).await;
+                self.rx_copier_loop().await;
             },
             "uart-rx-copier",
         );
@@ -134,28 +203,17 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
     ///
     /// Spawns an async task that continuously pops from the TX ring
     /// buffer and writes data to the UART.
-    ///
-    /// `enable_tx_intr` is called to re-enable TX interrupts when the
-    /// UART's transmit holding register is full.
-    pub fn start_tx_copier(&'static self, enable_tx_intr: fn()) {
+    pub fn start_tx_copier(&'static self) {
         R::spawn(
             async move {
-                self.tx_copier_loop(enable_tx_intr).await;
+                self.tx_copier_loop().await;
             },
             "uart-tx-copier",
         );
     }
 
     /// RX copier loop with NAPI interrupt coalescing.
-    ///
-    /// Continuously reads from the UART and pushes to the RX ring buffer.
-    /// Tracks consecutive successful reads to implement NAPI-style
-    /// interrupt coalescing:
-    /// - Below threshold: read up to `COPIER_BUF_SIZE` bytes per iteration
-    /// - At/above threshold: read up to `NAPI_BATCH_SIZE` bytes per
-    ///   iteration (smaller batches for lower latency)
-    /// - On no data: reset counter and re-enable RX interrupts
-    async fn rx_copier_loop(&self, enable_rx_intr: fn()) {
+    async fn rx_copier_loop(&self) {
         let mut read_buf = [0u8; COPIER_BUF_SIZE];
         let mut consecutive = 0u32;
 
@@ -179,15 +237,14 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
                         consecutive += 1;
                     } else {
                         consecutive = 0;
-                        enable_rx_intr();
+                        self.uart.update_ier(IER::DATA_READY, IER::empty());
                     }
                 } else {
-                    consecutive =
-                        if total > 0 { consecutive + 1 } else { 0 };
+                    consecutive = if total > 0 { consecutive + 1 } else { 0 };
                 }
 
                 if consecutive < NAPI_THRESHOLD {
-                    enable_rx_intr();
+                    self.uart.update_ier(IER::DATA_READY, IER::empty());
                 }
 
                 // Register waker for next interrupt
@@ -204,36 +261,113 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartDriver<R, W, U> {
     }
 
     /// TX copier loop.
-    ///
-    /// Continuously pops data from the TX ring buffer and sends it to
-    /// the UART. When the UART's transmit holding register is full,
-    /// enables TX interrupts and waits for the next opportunity.
-    async fn tx_copier_loop(&self, enable_tx_intr: fn()) {
+    async fn tx_copier_loop(&self) {
         let mut write_buf = [0u8; COPIER_BUF_SIZE];
         let mut pending = 0usize;
         let mut cursor = 0usize;
 
         loop {
             poll_fn(|cx| {
+                #[cfg(feature = "telemetry")]
+                self.telemetry.tx_poll.fetch_add(1, Ordering::Relaxed);
+
+                self.tx_copier_active
+                    .store(true, core::sync::atomic::Ordering::Relaxed);
+
                 // If we've sent all pending data, get more from ring buffer
                 if cursor >= pending {
                     pending = self.tx.pop_batch(&mut write_buf);
                     cursor = 0;
+                    if pending > 0 {
+                        self.tx_staged_bytes
+                            .fetch_add(pending, core::sync::atomic::Ordering::Relaxed);
+                    }
                     if pending == 0 {
                         self.tx.register_waker(cx.waker());
+                        self.tx_copier_active
+                            .store(false, core::sync::atomic::Ordering::Relaxed);
                         return Poll::Pending;
                     }
                 }
 
-                // Send data to UART
-                let sent =
-                    self.uart.send_bytes(&write_buf[cursor..pending]);
-                cursor += sent;
+                // Bounded retry inner loop
+                let mut retries = 0usize;
+                loop {
+                    let sent = self.uart.send_bytes(&write_buf[cursor..pending]);
+                    cursor += sent;
+                    if sent > 0 {
+                        self.tx_staged_bytes
+                            .fetch_sub(sent, core::sync::atomic::Ordering::Relaxed);
+                    }
 
-                // If we couldn't send everything, enable TX interrupt
-                // for the next opportunity
-                if cursor < pending {
-                    enable_tx_intr();
+                    #[cfg(feature = "telemetry")]
+                    if sent > 0 {
+                        self.telemetry
+                            .tx_hw_bytes
+                            .fetch_add(sent as u64, Ordering::Relaxed);
+                    } else {
+                        self.telemetry
+                            .tx_no_progress
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+
+                    // All data sent — exit inner loop to get more from ring
+                    if cursor >= pending {
+                        break;
+                    }
+
+                    // Made progress — reset retry counter and continue
+                    if sent > 0 {
+                        retries = 0;
+                        continue;
+                    }
+
+                    // No progress — increment retry counter
+                    retries += 1;
+                    if retries <= TX_FAST_RETRY_LIMIT {
+                        continue;
+                    }
+
+                    // Budget exhausted — register waker, enable THRE, final recheck
+                    TX_WAKER.register(cx.waker());
+                    self.uart.update_ier(IER::THR_EMPTY, IER::empty());
+
+                    let sent = self.uart.send_bytes(&write_buf[cursor..pending]);
+                    cursor += sent;
+                    if sent > 0 {
+                        self.tx_staged_bytes
+                            .fetch_sub(sent, core::sync::atomic::Ordering::Relaxed);
+                    }
+
+                    #[cfg(feature = "telemetry")]
+                    if sent > 0 {
+                        self.telemetry
+                            .tx_hw_bytes
+                            .fetch_add(sent as u64, Ordering::Relaxed);
+                    } else {
+                        self.telemetry
+                            .tx_no_progress
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+
+                    if cursor >= pending {
+                        break;
+                    }
+
+                    // Still no progress — yield to scheduler, wait for ISR
+                    self.tx_copier_active
+                        .store(false, core::sync::atomic::Ordering::Relaxed);
+                    return Poll::Pending;
+                }
+
+                // TEMT corner-case: wait for shift register to drain.
+                if !self.uart.transmitter_empty() {
+                    for _ in 0..TX_TEMT_POLL_LIMIT {
+                        if self.uart.transmitter_empty() {
+                            break;
+                        }
+                        core::hint::spin_loop();
+                    }
                 }
 
                 // Register waker for next interrupt

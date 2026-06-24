@@ -1,31 +1,48 @@
 # tasks.md — 任务追踪
 
-> 由 project-rules-generator 初始化，由 project-docs-assistant 日常维护。
-> 2026-06-03: 文档体系迁移到 OpenSpec（任务追踪格式扩展以兼容 OpenSpec changes/）
+> 由 openspec-assistant 日常维护。
+> Last updated: 2026-06-23 (Q15 M3 TtyWrite short-write contract 完成)
+> 2026-06-23: M3 完成 — TtyWrite::write 返回 usize，双仓库 5 文件 + benchmark，54 tests PASS，QEMU 无退化。
 > 条目格式: <!-- T{编号} --> 标记开头，支持 grep 精确定位。
-> OpenSpec 同步: `openspec list` 列出当前 proposals。
 
 ---
 
 ## 进行中
 
-<!-- 添加时格式: <!-- T{编号} --> - [ ] {任务描述} -->
+（无）
 
 ## 待办
 
-<!-- 添加时格式: <!-- T{编号} --> - [ ] {任务描述} -->
-
-<!-- T1 --> - [x] 同步父 CLAUDE.md 文档索引（uart_16550 行从 .claude/docs/ 改为 openspec/specs/）— 2026-06-05 已完成
 <!-- T2 --> - [ ] 评估 optimization O8（DMA 模式寄存器完整控制）在 StarryOS P2 阶段的需求
-<!-- T3 --> - [ ] **决策 D1**: 确认 StarryOS Q6 阶段 async_uart wrapper 落地方案（路径 B - StarryOS wrapper 层封装）
-<!-- T4 --> - [ ] **决策 D2**: 确认 Waker 实现方式（自研 AtomicWaker vs 引入 embassy 依赖）
 <!-- T5 --> - [ ] **决策 D3**: 起草 uart_16550 上游 `embedded-io-async` feature 提案 issue 草稿（暂不提交 PR，先产出文档）
+<!-- T8 --> - [ ] ADR-034 跟踪：LTO 临时禁用，待特性稳定后重新启用
 
-## 阻塞项
+## 已完成
 
-<!-- 添加时格式: <!-- T{编号} --> - {阻塞描述} - {原因} -->
+<!-- T32 --> - [x] **Q15 M3**: TtyWrite short-write contract — `fn write(&self, buf: &[u8]) -> usize` (2026-06-23)
+<!-- T13 --> - [x] **M4.1 ring 指标**: RingBufRx/Tx 指标 — 2026-06-19
+<!-- T14 --> - [x] **M4.2 copier 指标**: AsyncUartDriver 指标 — 2026-06-19
+<!-- T15 --> - [x] **M4.3 waker 顺序修复**: register→enable 顺序 — 2026-06-19
+<!-- T16 --> - [x] **M4.4 TX backpressure**: busy-poll 修复 — 2026-06-19
+<!-- T17 --> - [x] **M4.5 TDD 测试**: 4 RED→GREEN 测试 — 2026-06-19
+<!-- T18 --> - [x] **M4.6 全量测试**: 58 tests GREEN — 2026-06-19
+<!-- T19 --> - [x] **正确性修复**: F1-F12 全部修复，12 commits，65 tests GREEN，clippy clean — 2026-06-20
+<!-- T20 --> - [x] **F1**: SPSC 别名 UB → RawMutex + take_reader gate + copier gate
+<!-- T21 --> - [x] **F2**: async I/O 不等待 → register→recheck→Pending + flush TEMT
+<!-- T22 --> - [x] **F3**: TX 判空丢唤醒 → TX copier register→recheck 协议
+<!-- T23 --> - [x] **F4**: 全局 waker → per-driver AtomicWakers + handle_irq
+<!-- T24 --> - [x] **F5**: ISR bypass backend → UartPort IRQ 方法
+<!-- T25 --> - [x] **F6**: IER RMW → update_ier 在 SpinNoIrq 锁内
+<!-- T26 --> - [x] **F7**: 中断源不清 → Line/Modem/DMA 全部处理
+<!-- T27 --> - [x] **F9**: loopback 不恢复 → finally-style MCR/IER/FCR 恢复
+<!-- T28 --> - [x] **F10**: NAPI 无预算 → 4096-byte budget + yield
+<!-- T29 --> - [x] **F11**: 计算 panic → checked arithmetic + Error
+<!-- T30 --> - [x] **F12**: 测试不真实 → 每测试独立 storage + poll 路径
 
 ## OpenSpec 变更
 
-<!-- 通过 /opsx:propose 创建的变更会出现在 openspec/changes/，归档后用 openspec archive -->
-<!-- 当前: 无进行中的 change -->
+- `fix-uart-correctness-invariants` — 12 项修复全部完成，65 tests GREEN，待归档
+
+---
+
+<!-- arc: ARC-202606241146 --> 1 条已归档 (T31) (2026-06-24) → ../openspec/changes/ARC-202606241146/proposal.md

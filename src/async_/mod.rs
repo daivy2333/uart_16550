@@ -10,3 +10,5 @@ pub mod device_ops;
 pub mod driver;
 pub mod isr;
 pub mod ring_buffer;
+#[cfg(feature = "telemetry")]
+pub mod telemetry;

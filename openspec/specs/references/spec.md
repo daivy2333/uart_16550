@@ -1,7 +1,7 @@
 # references/spec.md - 外部参考与依赖
 
 > Version: 0.6.0
-> Last updated: 2026-06-03
+> Last updated: 2026-06-20
 > Migrated from: .claude/docs/references.md (2026-05-25)
 
 ## Purpose
@@ -117,3 +117,20 @@
 - **WHEN** 开发者需要量化性能或设计分层架构
 - **THEN** 阅读 `.claude/analysis/async-architecture.md`（4 层架构 + 性能数据 + ISR 流程图 + StarryOS Q6 对接）
 - **AND** 关键数据：spin_loop 100% CPU vs 异步 ISR ~0% CPU（空闲时）
+
+#### Scenario: 查找 UART 正确性审计
+
+- **WHEN** 开发者需要检查异步并发、ISR、寄存器状态恢复和测试缺口
+- **THEN** 阅读 `.claude/analysis/uart-correctness-audit-2026-06.md`
+- **AND** 该审计包含 2 项 Critical、7 项 High、3 项 Medium 风险及分阶段修复顺序
+
+<!-- R2 --> | UART 正确性审计（2026-06） | .claude/analysis/uart-correctness-audit-2026-06.md | SPSC 所有权、异步契约、waker/IER/ISR 与错误回滚审计 |
+
+---
+
+## 子项目索引
+
+<!-- 由 openspec-liaison 写入，由 openspec-assistant 日常维护，由 openspec-archivist 周期清理。 -->
+<!-- 添加时格式: <!-- R{编号} --> | 子项目 | 路径 | 文档体系 | 摘要 | 最近更新 | -->
+
+<!-- R1 --> | StarryOS | ../StarryOS | OpenSpec✓ config✓ specs✓(4 主 + 4 delta) changes✗(archive only) cg✓ | 主项目 — RISC-V 异步串口 OS，Q0~Q13 完成（含 async trait 提取 + ArceOS 适配 + inline-batch 优化），Q6 等待硬件 | 2026-06-16 |

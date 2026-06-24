@@ -1,7 +1,7 @@
 # learned/spec.md - 项目学习记忆
 
 > Version: 0.6.0
-> Last updated: 2026-06-03
+> Last updated: 2026-06-20 (UART correctness audit: ownership/waker/ISR invariants)
 > Migrated from: .claude/docs/learned.md (2026-05-25)
 
 ## Purpose
@@ -247,6 +247,8 @@ Config struct 的字段、类型、默认值 MUST 可通过 spec 速查。
 
 核心模块依赖关系和类型关系 MUST 记录在 spec 中。
 
+⚠️ STALE [2026-06-24] — 自 2026-05-25 迁移以来未更新，async feature 5 个新模块路径（async_/isr.rs / ring_buffer.rs / driver.rs / device_ops.rs / os/mod.rs）未含。建议 30 天内补齐或 Archive。
+
 #### Scenario: 理解核心依赖链
 
 - **WHEN** 开发者需要理解模块依赖
@@ -291,7 +293,6 @@ Config struct 的字段、类型、默认值 MUST 可通过 spec 速查。
 - **THEN** 可以关注：
   - 硬件测试子项目（test/）的启动流程和调试接口用法
   - `Config::prescaler_division_factor` 的实际硬件使用场景
-  - embedded-io feature 在 StarryOS 中的集成方式
 
 ### Requirement: 异步适配层 API 速查
 
@@ -340,3 +341,73 @@ Config struct 的字段、类型、默认值 MUST 可通过 spec 速查。
 - **AND** 低延迟场景可改 `One`（每字节中断）
 - **AND** 平衡选择 `Four` 或 `Eight`
 - **AND** 在 `Config { interrupts: IER::DATA_READY, ... }` 中控制启用位
+
+### Requirement: Ring/Copier 可观测性指标 API（M4 新增）
+
+Ring buffer 和 copier 的运行时指标 MUST 通过公开 Atomic 字段暴露。
+
+#### Scenario: 查询 ring buffer 指标
+
+- **WHEN** OS 层需要监控 ring buffer 状态
+- **THEN** 直接访问 `RingBufRx`/`RingBufTx` 的公开字段（均为 `AtomicUsize`）：
+  - `rx.accepted.load(Ordering::Relaxed)` — 已写入字节总数
+  - `rx.dropped.load(Ordering::Relaxed)` — 丢弃字节数
+  - `rx.high_water.load(Ordering::Relaxed)` — 占用峰值
+  - `rx.popped.load(Ordering::Relaxed)` — 已读出字节数
+- **AND** 同样适用于 TX ring
+
+#### Scenario: 查询 copier 指标
+
+- **WHEN** OS 层需要监控 copier 效率
+- **THEN** 访问 `AsyncUartDriver` 的公开字段（均为 `AtomicU64`）：
+  - `driver.rx_poll.load(Relaxed)` / `tx_poll` — poll 次数
+  - `driver.rx_hw_bytes.load(Relaxed)` / `tx_hw_bytes` — 硬件字节数
+  - `driver.rx_no_progress.load(Relaxed)` / `tx_no_progress` — 空 poll 次数
+
+### Requirement: Waker 注册必须在中断使能之前（M4 修复）
+
+RX/TX copier 的 waker 注册顺序 MUST 遵循先 register 后 enable 原则。
+
+#### Scenario: 正确的 RX copier 注册顺序
+
+- **WHEN** RX copier 进入 NAPI polling 模式
+- **THEN** `RX_WAKER.register(cx.waker())` MUST 在 `enable_rx_intr()` 之前调用
+- **AND** 反之则存在竞态窗口：中断在 register 之前到达 → waker 丢失 → 数据永久卡住
+
+### Requirement: TX copier 无法取得进展时必须 yield（M4 修复）
+
+TX copier MUST 在 `send_bytes() == 0` 时返回 `Poll::Pending` 而非 `Poll::Ready(())`。
+
+#### Scenario: THR 满时正确挂起
+
+- **WHEN** `send_bytes()` 返回 0（发送保持寄存器满）
+- **THEN** copier MUST 返回 `Poll::Pending` 等待 TX 中断唤醒
+- **AND** 返回 `Poll::Ready(())` 会导致 busy-poll 紧循环浪费 CPU
+
+<!-- L1 -->
+### Requirement: 异步条件等待必须 register 后重新检查
+
+异步条件等待 MUST 在注册 waker 后重新检查条件；单纯“先 register、后 enable”不足以覆盖所有丢唤醒竞态。
+
+#### Scenario: ring 判空后进入 Pending
+
+- **WHEN** consumer 因 ring 为空准备返回 `Poll::Pending`
+- **THEN** MUST 先注册 waker，再重新检查 ring 是否仍为空
+- **AND** 禁止使用“先判空、后 register、直接 Pending”的顺序
+- **AND** UART 中断等待同样应使用 register → enable → condition recheck 的闭环
+
+<!-- L2 -->
+### Requirement: SPSC 安全前提必须由类型所有权保证
+
+SPSC producer/consumer 的唯一性 MUST 由类型所有权保证；`UnsafeCell<Reader/Writer>` 的安全性不能依赖公开 API 调用者自律。
+
+#### Scenario: 暴露 ring endpoint
+
+- **WHEN** ring wrapper 通过 `&self` 取得内部 `&mut Reader/Writer`
+- **THEN** producer 和 consumer capability MUST 各自唯一且不可复制
+- **AND** 禁止为可 Clone/可重复构造的 wrapper 无条件实现 `Sync`
+- **AND** 多生产者或多消费者需求必须改用匹配并发模型的数据结构或显式锁
+
+---
+
+<!-- arc: ARC-202606241146 --> 1 条已归档 (L_EXP-3) (2026-06-24) → ./changes/ARC-202606241146/proposal.md

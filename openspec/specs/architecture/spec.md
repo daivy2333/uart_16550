@@ -1,7 +1,7 @@
 # architecture/spec.md - 架构决策记录
 
 > Version: 0.6.0
-> Last updated: 2026-06-03
+> Last updated: 2026-06-20
 > Migrated from: .claude/docs/architecture.md (2026-05-25)
 
 ## Purpose
@@ -163,3 +163,17 @@ aarch64 后端 MUST 使用 `ldrb`/`strb` 内联汇编替代 `ptr::read_volatile`
 - **AND** **原因**：Q6 阶段 StarryOS 自身需求优先；上游社区对 async 集成持保守态度
 - **AND** **影响**：保留 PR 可能性但不阻塞 Q6 进度
 - **AND** **触发条件**：如 StarryOS 异步串口落地效果良好，提取 `embedded-io-async` feature 提案给上游
+
+<!-- A1 -->
+### Requirement: 异步 UART 状态按端口隔离并编码端点所有权（2026-06-20）
+
+异步 UART 的 IRQ 状态 MUST 按端口隔离，ring endpoint 的并发模型 MUST 由类型所有权编码。
+
+#### Scenario: 设计 IRQ 与 ring 状态
+
+- **WHEN** 异步 UART 支持一个或多个端口及 SMP 执行
+- **THEN** **决策**：waker、IER cache、IRQ register accessor 和 drain 状态 MUST 属于具体端口实例
+- **AND** **决策**：RX/TX ring MUST 通过唯一 producer/consumer capability 表达 SPSC 所有权
+- **AND** **原因**：全局 waker 会产生跨端口串扰，公开 `UnsafeCell` wrapper 会允许并发可变别名，load/store IER 更新会丢位
+- **AND** **影响**：ISR 入口需接收 per-port state；reader/writer 构造与 copier 启动 API 需要收紧；多 writer 需显式串行化
+- **AND** **替代方案**：继续依赖调用方保证单端口/SPSC 已拒绝，因为约束无法被编译器或测试稳定验证
