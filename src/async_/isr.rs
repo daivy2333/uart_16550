@@ -8,7 +8,7 @@
 use core::ptr::NonNull;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::spec::registers::{InterruptType, ISR, LSR, offsets};
+use crate::spec::registers::{ISR, InterruptType, LSR, offsets};
 
 /// RX data ready waker — woken when data arrives.
 pub static RX_WAKER: AtomicWaker = AtomicWaker::new();
@@ -75,8 +75,7 @@ pub fn uart_isr_handler(_irq: usize, base: NonNull<u8>, fn_disable_rx: fn(), fn_
         let isr = regs.read_isr();
 
         match isr.interrupt_type() {
-            Some(InterruptType::ReceivedDataReady)
-            | Some(InterruptType::ReceptionTimeout) => {
+            Some(InterruptType::ReceivedDataReady) | Some(InterruptType::ReceptionTimeout) => {
                 fn_disable_rx();
                 RX_WAKER.wake();
             }

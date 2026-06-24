@@ -33,9 +33,7 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartReader<R, W, U> {
     }
 }
 
-impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug
-    for AsyncUartReader<R, W, U>
-{
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug for AsyncUartReader<R, W, U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AsyncUartReader").finish_non_exhaustive()
     }
@@ -83,17 +81,13 @@ impl<R: OsRuntime, W: OsWakerSet, U: UartPort> AsyncUartWriter<R, W, U> {
     }
 }
 
-impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug
-    for AsyncUartWriter<R, W, U>
-{
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> fmt::Debug for AsyncUartWriter<R, W, U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AsyncUartWriter").finish_non_exhaustive()
     }
 }
 
-impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Clone
-    for AsyncUartWriter<R, W, U>
-{
+impl<R: OsRuntime, W: OsWakerSet, U: UartPort> Clone for AsyncUartWriter<R, W, U> {
     fn clone(&self) -> Self {
         Self {
             driver: Arc::clone(&self.driver),
